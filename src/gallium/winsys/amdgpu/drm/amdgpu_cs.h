@@ -59,8 +59,15 @@ struct amdgpu_ib {
    unsigned                used_ib_space;
 };
 
+enum {
+   IB_CONST = 0, /* the const IB must be first */
+   IB_MAIN = 1,
+   IB_NUM
+};
+
 struct amdgpu_cs {
    struct amdgpu_ib main; /* must be first because this is inherited */
+   struct amdgpu_ib const_ib; /* optional constant engine IB */
    struct amdgpu_ctx *ctx;
 
    /* Flush CS. */
@@ -70,7 +77,7 @@ struct amdgpu_cs {
    /* amdgpu_cs_submit parameters */
    enum ring_type              ring_type;
    struct amdgpu_cs_request    request;
-   struct amdgpu_cs_ib_info    ib;
+   struct amdgpu_cs_ib_info    ib[IB_NUM];
 
    /* Buffers. */
    unsigned                    max_num_buffers;

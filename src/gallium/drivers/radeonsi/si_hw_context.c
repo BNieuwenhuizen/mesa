@@ -30,6 +30,7 @@
 void si_need_cs_space(struct si_context *ctx)
 {
 	struct radeon_winsys_cs *cs = ctx->b.gfx.cs;
+        struct radeon_winsys_cs *ce_ib = ctx->ce_ib;
 	struct radeon_winsys_cs *dma = ctx->b.dma.cs;
 
 	/* Flush the DMA IB if it's not empty. */
@@ -53,7 +54,8 @@ void si_need_cs_space(struct si_context *ctx)
 	/* If the CS is sufficiently large, don't count the space needed
 	 * and just flush if there is not enough space left.
 	 */
-	if (unlikely(cs->cdw > cs->max_dw - 2048))
+	if (unlikely(cs->cdw > cs->max_dw - 2048 ||
+                     (ce_ib && ce_ib->cdw > ce_ib->max_dw - 10 * 1024)))
 		ctx->b.gfx.flush(ctx, RADEON_FLUSH_ASYNC, NULL);
 }
 

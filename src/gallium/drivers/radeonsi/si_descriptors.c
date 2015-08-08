@@ -97,6 +97,7 @@ static void si_init_descriptors(struct si_descriptors *desc,
 	desc->element_dw_size = element_dw_size;
 	desc->num_elements = num_elements;
 	desc->list_dirty = true; /* upload the list before the next draw */
+	desc->dirty_mask = num_elements == 64 ? ~0llu : (1llu << num_elements) - 1;
 	desc->shader_userdata_offset = shader_userdata_index * 4;
 
 	/* Initialize the array to NULL descriptors if the element size is 8. */
@@ -221,6 +222,7 @@ static void si_set_sampler_view(struct si_context *sctx,
 		views->desc.enabled_mask &= ~(1llu << slot);
 	}
 
+	views->desc.dirty_mask |= 1llu << slot;
 	views->desc.list_dirty = true;
 }
 
@@ -302,6 +304,7 @@ static void si_bind_sampler_states(struct pipe_context *ctx, unsigned shader,
 			continue;
 
 		memcpy(desc->list + slot * 16 + 12, sstates[i]->val, 4*4);
+		desc->dirty_mask |= 1llu << slot;
 		desc->list_dirty = true;
 	}
 }
@@ -544,6 +547,7 @@ static void si_set_constant_buffer(struct pipe_context *ctx, uint shader, uint s
 		buffers->desc.enabled_mask &= ~(1llu << slot);
 	}
 
+	buffers->desc.dirty_mask |= 1llu << slot;
 	buffers->desc.list_dirty = true;
 }
 
@@ -639,6 +643,7 @@ void si_set_ring_buffer(struct pipe_context *ctx, uint shader, uint slot,
 		buffers->desc.enabled_mask &= ~(1llu << slot);
 	}
 
+	buffers->desc.dirty_mask |= 1llu << slot;
 	buffers->desc.list_dirty = true;
 }
 
@@ -731,6 +736,7 @@ static void si_set_streamout_targets(struct pipe_context *ctx,
 						NULL);
 			buffers->desc.enabled_mask &= ~(1llu << bufidx);
 		}
+		buffers->desc.dirty_mask |= 1llu << bufidx;
 	}
 	for (; i < old_num_targets; i++) {
 		bufidx = SI_SO_BUF_OFFSET + i;
@@ -738,6 +744,7 @@ static void si_set_streamout_targets(struct pipe_context *ctx,
 		memset(buffers->desc.list + bufidx*4, 0, sizeof(uint32_t) * 4);
 		pipe_resource_reference(&buffers->buffers[bufidx], NULL);
 		buffers->desc.enabled_mask &= ~(1llu << bufidx);
+		buffers->desc.dirty_mask |= 1llu << bufidx;
 	}
 
 	buffers->desc.list_dirty = true;
@@ -816,6 +823,7 @@ static void si_invalidate_buffer(struct pipe_context *ctx, struct pipe_resource 
 			if (buffers->buffers[i] == buf) {
 				si_desc_reset_buffer_offset(ctx, buffers->desc.list + i*4,
 							    old_va, buf);
+				buffers->desc.dirty_mask |= 1llu << i;
 				buffers->desc.list_dirty = true;
 
 				radeon_add_to_buffer_list(&sctx->b, &sctx->b.gfx,
@@ -845,6 +853,7 @@ static void si_invalidate_buffer(struct pipe_context *ctx, struct pipe_resource 
 			if (buffers->buffers[i] == buf) {
 				si_desc_reset_buffer_offset(ctx, buffers->desc.list + i*4,
 							    old_va, buf);
+				buffers->desc.dirty_mask |= 1llu << i;
 				buffers->desc.list_dirty = true;
 
 				radeon_add_to_buffer_list(&sctx->b, &sctx->b.gfx,
@@ -872,6 +881,7 @@ static void si_invalidate_buffer(struct pipe_context *ctx, struct pipe_resource 
 							    views->desc.list +
 							    i * 16 + 4,
 							    old_va, buf);
+				views->desc.dirty_mask |= 1llu << i;
 				views->desc.list_dirty = true;
 
 				radeon_add_to_buffer_list(&sctx->b, &sctx->b.gfx,

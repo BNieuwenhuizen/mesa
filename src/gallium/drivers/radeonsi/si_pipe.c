@@ -143,6 +143,13 @@ static struct pipe_context *si_create_context(struct pipe_screen *screen,
 	sctx->b.gfx.cs = ws->cs_create(sctx->b.ctx, RING_GFX, si_context_gfx_flush,
 				       sctx, sscreen->b.trace_bo ?
 					       sscreen->b.trace_bo->buf : NULL);
+
+	if (!(sscreen->b.debug_flags & DBG_NO_CE) && ws->cs_add_const_ib) {
+		sctx->ce_ib = ws->cs_add_const_ib(sctx->b.gfx.cs);
+		if (!sctx->ce_ib)
+			goto fail;
+	}
+
 	sctx->b.gfx.flush = si_context_gfx_flush;
 
 	/* Border colors. */

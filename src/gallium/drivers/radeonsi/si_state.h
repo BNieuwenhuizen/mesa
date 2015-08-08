@@ -195,6 +195,7 @@ struct si_descriptors {
 
 	/* The i-th bit is set if that element is enabled (non-NULL resource). */
 	uint64_t enabled_mask;
+	uint64_t dirty_mask; /* needed by the CE for partial updates */
 
 	/* The shader userdata offset within a shader where the 64-bit pointer to the descriptor
 	 * array will be stored. */

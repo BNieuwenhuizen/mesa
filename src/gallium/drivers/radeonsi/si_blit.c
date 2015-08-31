@@ -264,7 +264,7 @@ static void si_blit_decompress_color(struct pipe_context *ctx,
 		return;
 
 	for (level = first_level; level <= last_level; level++) {
-		if (!(rtex->dirty_level_mask & (1 << level)))
+		if (!(rtex->dirty_level_mask & (1 << level)) && !(rtex->dcc_compressed_level_mask & (1 << level)))
 			continue;
 
 		/* The smaller the mipmap level, the less layers there are
@@ -274,6 +274,7 @@ static void si_blit_decompress_color(struct pipe_context *ctx,
 
 		for (layer = first_layer; layer <= checked_last_layer; layer++) {
 			struct pipe_surface *cbsurf, surf_tmpl;
+			void * custom_blend;
 
 			surf_tmpl.format = rtex->resource.b.b.format;
 			surf_tmpl.u.tex.level = level;
@@ -281,10 +282,17 @@ static void si_blit_decompress_color(struct pipe_context *ctx,
 			surf_tmpl.u.tex.last_layer = layer;
 			cbsurf = ctx->create_surface(ctx, &rtex->resource.b.b, &surf_tmpl);
 
+			if(rtex->fmask.size) {
+				custom_blend = sctx->custom_blend_decompress;
+			} else if(rtex->dcc_buffer) {
+				/* also eliminates the fast clear if necessary */
+				custom_blend = sctx->custom_blend_dcc_decompress;
+			} else {
+				custom_blend = sctx->custom_blend_fastclear;
+			}
+
 			si_blitter_begin(ctx, SI_DECOMPRESS);
-			util_blitter_custom_color(sctx->blitter, cbsurf,
-				rtex->fmask.size ? sctx->custom_blend_decompress :
-						   sctx->custom_blend_fastclear);
+			util_blitter_custom_color(sctx->blitter, cbsurf, custom_blend);
 			si_blitter_end(ctx);
 
 			pipe_surface_reference(&cbsurf, NULL);

@@ -1915,8 +1915,19 @@ static void si_initialize_color_surface(struct si_context *sctx,
 	surf->cb_color_info = color_info;
 	surf->cb_color_attrib = color_attrib;
 
-	if (sctx->b.chip_class >= VI)
-		surf->cb_dcc_control = S_028C78_OVERWRITE_COMBINER_DISABLE(1);
+	if (sctx->b.chip_class >= VI) {
+		
+		surf->cb_dcc_control = S_028C78_KEY_CLEAR_ENABLE(1) |
+		                       S_028C78_MAX_UNCOMPRESSED_BLOCK_SIZE(2) |
+		                       S_028C78_INDEPENDENT_64B_BLOCKS(1);
+
+		if(rtex->dcc_buffer) {
+			uint64_t dcc_offset = rtex->surface.level[level].dcc_offset;
+
+			surf->cb_dcc_base = (rtex->dcc_buffer->gpu_address + dcc_offset) >> 8;
+		}
+	}
+
 
 	if (rtex->fmask.size) {
 		surf->cb_color_fmask = (offset + rtex->fmask.offset) >> 8;
@@ -2245,6 +2256,12 @@ static void si_emit_framebuffer_state(struct si_context *sctx, struct r600_atom 
 				RADEON_PRIO_COLOR_META);
 		}
 
+		if (tex->dcc_buffer && tex->dcc_buffer != &tex->resource) {
+			radeon_add_to_buffer_list(&sctx->b, &sctx->b.rings.gfx,
+				tex->dcc_buffer, RADEON_USAGE_READWRITE,
+				RADEON_PRIO_COLOR_META);
+		}
+
 		radeon_set_context_reg_seq(cs, R_028C60_CB_COLOR0_BASE + i * 0x3C,
 					   sctx->b.chip_class >= VI ? 14 : 13);
 		radeon_emit(cs, cb->cb_color_base);	/* R_028C60_CB_COLOR0_BASE */
@@ -2262,7 +2279,7 @@ static void si_emit_framebuffer_state(struct si_context *sctx, struct r600_atom 
 		radeon_emit(cs, tex->color_clear_value[1]);	/* R_028C90_CB_COLOR0_CLEAR_WORD1 */
 
 		if (sctx->b.chip_class >= VI)
-			radeon_emit(cs, 0);	/* R_028C94_CB_COLOR0_DCC_BASE */
+			radeon_emit(cs, cb->cb_dcc_base);	/* R_028C94_CB_COLOR0_DCC_BASE */
 	}
 	/* set CB_COLOR1_INFO for possible dual-src blending */
 	if (i == 1 && state->cbufs[0] &&
@@ -3052,6 +3069,7 @@ void si_init_state_functions(struct si_context *sctx)
 	sctx->custom_blend_resolve = si_create_blend_custom(sctx, V_028808_CB_RESOLVE);
 	sctx->custom_blend_decompress = si_create_blend_custom(sctx, V_028808_CB_FMASK_DECOMPRESS);
 	sctx->custom_blend_fastclear = si_create_blend_custom(sctx, V_028808_CB_ELIMINATE_FAST_CLEAR);
+	sctx->custom_blend_dcc_decompress = si_create_blend_custom(sctx, V_028808_CB_DCC_DECOMPRESS);
 
 	sctx->b.b.set_clip_state = si_set_clip_state;
 	sctx->b.b.set_scissor_states = si_set_scissor_states;
@@ -3386,7 +3404,8 @@ static void si_init_config(struct si_context *sctx)
 
 	if (sctx->b.chip_class >= VI) {
 		si_pm4_set_reg(pm4, R_028424_CB_DCC_CONTROL,
-			       S_028424_OVERWRITE_COMBINER_MRT_SHARING_DISABLE(1));
+			       S_028424_OVERWRITE_COMBINER_MRT_SHARING_DISABLE(1) |
+			       S_028424_OVERWRITE_COMBINER_WATERMARK(4));
 		si_pm4_set_reg(pm4, R_028C58_VGT_VERTEX_REUSE_BLOCK_CNTL, 30);
 		si_pm4_set_reg(pm4, R_028C5C_VGT_OUT_DEALLOC_CNTL, 32);
 	}

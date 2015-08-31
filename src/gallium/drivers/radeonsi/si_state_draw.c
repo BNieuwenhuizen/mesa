@@ -866,6 +866,20 @@ void si_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info *info)
 			rtex->dirty_level_mask |= 1 << surf->u.tex.level;
 		} while (mask);
 	}
+	
+	if (sctx->framebuffer.dcc_compressed_cb_mask) {
+		struct pipe_surface *surf;
+		struct r600_texture *rtex;
+		unsigned mask = sctx->framebuffer.dcc_compressed_cb_mask;
+
+		do {
+			unsigned i = u_bit_scan(&mask);
+			surf = sctx->framebuffer.state.cbufs[i];
+			rtex = (struct r600_texture*)surf->texture;
+
+			rtex->dcc_compressed_level_mask |= 1 << surf->u.tex.level;
+		} while (mask);
+	}
 
 	pipe_resource_reference(&ib.buffer, NULL);
 	sctx->b.num_draw_calls++;

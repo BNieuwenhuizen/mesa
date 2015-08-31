@@ -260,7 +260,7 @@ static void si_blit_decompress_color(struct pipe_context *ctx,
 	struct si_context *sctx = (struct si_context *)ctx;
 	unsigned layer, level, checked_last_layer, max_layer;
 
-	if (!rtex->dirty_level_mask)
+	if (!rtex->dirty_level_mask && !rtex->dcc_compressed_level_mask)
 		return;
 
 	for (level = first_level; level <= last_level; level++) {
@@ -294,6 +294,7 @@ static void si_blit_decompress_color(struct pipe_context *ctx,
 		 * I don't think this case occurs often though. */
 		if (first_layer == 0 && last_layer == max_layer) {
 			rtex->dirty_level_mask &= ~(1 << level);
+			rtex->dcc_compressed_level_mask &= ~(1 << level);
 		}
 	}
 }
@@ -314,7 +315,7 @@ void si_decompress_color_textures(struct si_context *sctx,
 		assert(view);
 
 		tex = (struct r600_texture *)view->texture;
-		assert(tex->cmask.size || tex->fmask.size);
+		assert(tex->cmask.size || tex->fmask.size || tex->dcc_buffer);
 
 		si_blit_decompress_color(&sctx->b.b, tex,
 					 view->u.tex.first_level, view->u.tex.last_level,
@@ -439,7 +440,7 @@ static void si_decompress_subresource(struct pipe_context *ctx,
 		si_blit_decompress_depth_in_place(sctx, rtex,
 						  level, level,
 						  first_layer, last_layer);
-	} else if (rtex->fmask.size || rtex->cmask.size) {
+	} else if (rtex->fmask.size || rtex->cmask.size || rtex->dcc_buffer) {
 		si_blit_decompress_color(ctx, rtex, level, level,
 					 first_layer, last_layer);
 	}
@@ -708,7 +709,7 @@ static void si_flush_resource(struct pipe_context *ctx,
 
 	assert(res->target != PIPE_BUFFER);
 
-	if (!rtex->is_depth && rtex->cmask.size) {
+	if (!rtex->is_depth && (rtex->cmask.size || rtex->dcc_buffer)) {
 		si_blit_decompress_color(ctx, rtex, 0, res->last_level,
 					 0, util_max_layer(res, 0));
 	}

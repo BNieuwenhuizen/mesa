@@ -204,6 +204,8 @@ struct r600_texture {
 	unsigned			pitch_override;
 	bool				is_depth;
 	unsigned			dirty_level_mask; /* each bit says if that mipmap is compressed */
+	unsigned			dcc_compressed_level_mask;
+
 	struct r600_texture		*flushed_depth_texture;
 	boolean				is_flushing_texture;
 	struct radeon_surf		surface;

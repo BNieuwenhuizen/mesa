@@ -2116,6 +2116,7 @@ static void si_set_framebuffer_state(struct pipe_context *ctx,
 
 	sctx->framebuffer.export_16bpc = 0;
 	sctx->framebuffer.compressed_cb_mask = 0;
+	sctx->framebuffer.dcc_compressed_cb_mask = 0;
 	sctx->framebuffer.nr_samples = util_framebuffer_get_num_samples(state);
 	sctx->framebuffer.log_samples = util_logbase2(sctx->framebuffer.nr_samples);
 	sctx->framebuffer.cb0_is_integer = state->nr_cbufs && state->cbufs[0] &&
@@ -2141,6 +2142,10 @@ static void si_set_framebuffer_state(struct pipe_context *ctx,
 
 		if (rtex->fmask.size && rtex->cmask.size) {
 			sctx->framebuffer.compressed_cb_mask |= 1 << i;
+		}
+
+		if (rtex->dcc_buffer) {
+			sctx->framebuffer.dcc_compressed_cb_mask |= 1 << i;
 		}
 		r600_context_add_resource_size(ctx, surf->base.texture);
 	}

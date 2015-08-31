@@ -242,11 +242,13 @@ void cik_sdma_copy(struct pipe_context *ctx,
 
 	if (src->format != dst->format ||
 	    rdst->surface.nsamples > 1 || rsrc->surface.nsamples > 1 ||
-	    rdst->dirty_level_mask & (1 << dst_level)) {
+	    rdst->dirty_level_mask & (1 << dst_level) ||
+	    rdst->dcc_compressed_level_mask & (1 << dst_level)) {
 		goto fallback;
 	}
 
-	if (rsrc->dirty_level_mask & (1 << src_level)) {
+	if (rsrc->dirty_level_mask & (1 << src_level) ||
+	    rsrc->dcc_compressed_level_mask & (1 << src_level)) {
 		if (rsrc->htile_buffer)
 			goto fallback;
 

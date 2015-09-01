@@ -2114,6 +2114,8 @@ static void si_set_framebuffer_state(struct pipe_context *ctx,
 	 */
 	sctx->b.flags |= SI_CONTEXT_INV_TC_L1 |
 			 SI_CONTEXT_INV_TC_L2 |
+			 SI_CONTEXT_PS_PARTIAL_FLUSH |
+			 SI_CONTEXT_FLUSH_WITH_INV_L2 |
 			 SI_CONTEXT_FLUSH_AND_INV_FRAMEBUFFER;
 
 	/* Take the maximum of the old and new count. If the new count is lower,

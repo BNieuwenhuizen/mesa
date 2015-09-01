@@ -2633,8 +2633,17 @@ si_create_sampler_view_custom(struct pipe_context *ctx,
 	view->state[4] = (S_008F20_DEPTH(depth - 1) | S_008F20_PITCH(pitch - 1));
 	view->state[5] = (S_008F24_BASE_ARRAY(state->u.tex.first_layer) |
 			  S_008F24_LAST_ARRAY(state->u.tex.last_layer));
-	view->state[6] = 0;
-	view->state[7] = 0;
+
+	if(tmp->dcc_buffer) {
+		uint64_t dcc_offset = surflevel[base_level].dcc_offset;
+
+		view->state[6] = S_008F28_COMPRESSION_EN(1) | S_008F28_ALPHA_IS_ON_MSB(1);
+		view->state[7] = (tmp->dcc_buffer->gpu_address + dcc_offset) >> 8;
+		view->dcc_buffer = tmp->dcc_buffer;
+	} else {
+		view->state[6] = 0;
+		view->state[7] = 0;
+	}
 
 	/* Initialize the sampler view for FMASK. */
 	if (tmp->fmask.size) {

@@ -1234,6 +1234,24 @@ static void evergreen_set_clear_color(struct r600_texture *rtex,
 	memcpy(rtex->color_clear_value, &uc, 2 * sizeof(uint32_t));
 }
 
+static bool vi_is_dcc_clear_allowed(enum pipe_format surface_format,
+				    const union pipe_color_union *color,
+				    uint32_t* reset_value) {
+	if (util_format_is_pure_uint(surface_format) ||
+	    util_format_is_pure_sint(surface_format))
+		return false;
+
+	if(color->f[0] != 0.0f || color->f[1] != 0.0f || color->f[2] != 0.0f)
+		return false;
+
+	if(color->f[3] != 1.0f && color->f[3] != 0.0f)
+		return false;
+
+	*reset_value = color->f[3] == 1.0f ? 0x40404040U : 0;
+
+	return true;
+}
+
 void evergreen_do_fast_color_clear(struct r600_common_context *rctx,
 				   struct pipe_framebuffer_state *fb,
 				   struct r600_atom *fb_state,
@@ -1248,6 +1266,7 @@ void evergreen_do_fast_color_clear(struct r600_common_context *rctx,
 	for (i = 0; i < fb->nr_cbufs; i++) {
 		struct r600_texture *tex;
 		unsigned clear_bit = PIPE_CLEAR_COLOR0 << i;
+		uint32_t dcc_reset_value;
 
 		if (!fb->cbufs[i])
 			continue;
@@ -1287,18 +1306,27 @@ void evergreen_do_fast_color_clear(struct r600_common_context *rctx,
 			continue;
 		}
 
-		/* ensure CMASK is enabled */
-		r600_texture_alloc_cmask_separate(rctx->screen, tex);
-		if (tex->cmask.size == 0) {
-			continue;
+		evergreen_set_clear_color(tex, fb->cbufs[i]->format, color);
+
+		if(tex->dcc_buffer && vi_is_dcc_clear_allowed(fb->cbufs[i]->format, color, &dcc_reset_value)) {
+			rctx->clear_buffer(&rctx->b, &tex->dcc_buffer->b.b,
+					0, tex->surface.dcc_size, dcc_reset_value, true);
+
+			tex->dcc_compressed_level_mask |= 1 << fb->cbufs[i]->u.tex.level;
+		} else {
+			/* ensure CMASK is enabled */
+			r600_texture_alloc_cmask_separate(rctx->screen, tex);
+			if (tex->cmask.size == 0) {
+				continue;
+			}
+
+			/* Do the fast clear. */
+			rctx->clear_buffer(&rctx->b, &tex->cmask_buffer->b.b,
+					tex->cmask.offset, tex->cmask.size, 0, true);
+
+			tex->dirty_level_mask |= 1 << fb->cbufs[i]->u.tex.level;
 		}
 
-		/* Do the fast clear. */
-		evergreen_set_clear_color(tex, fb->cbufs[i]->format, color);
-		rctx->clear_buffer(&rctx->b, &tex->cmask_buffer->b.b,
-				   tex->cmask.offset, tex->cmask.size, 0, true);
-
-		tex->dirty_level_mask |= 1 << fb->cbufs[i]->u.tex.level;
 		if (dirty_cbufs)
 			*dirty_cbufs |= 1 << i;
 		rctx->set_atom_dirty(rctx, fb_state, true);

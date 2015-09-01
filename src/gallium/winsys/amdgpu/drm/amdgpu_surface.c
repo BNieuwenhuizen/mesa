@@ -354,8 +354,7 @@ static int amdgpu_surface_init(struct radeon_winsys *rws,
    AddrDccIn.numSamples = AddrSurfInfoIn.numSamples = surf->nsamples;
    AddrSurfInfoIn.tileIndex = -1;
 
-   surf->dcc_allowed =  !(surf->flags & RADEON_SURF_Z_OR_SBUFFER) &&
-                        !compressed && AddrDccIn.numSamples <= 1 &&
+   surf->dcc_allowed =  !(surf->flags & RADEON_SURF_Z_OR_SBUFFER) && !compressed &&
                         !(surf->flags & RADEON_SURF_SCANOUT);
 
    /* Set the micro tile type. */

@@ -307,7 +307,7 @@ static void si_blit_decompress_color(struct pipe_context *ctx,
 		if (first_layer == 0 && last_layer == max_layer) {
 			rtex->dirty_level_mask &= ~(1 << level);
 
-			if(need_dcc_decompress)
+			if(rtex->fmask.size || need_dcc_decompress)
 				rtex->dcc_compressed_level_mask &= ~(1 << level);
 		}
 	}

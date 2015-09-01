@@ -1308,7 +1308,8 @@ void evergreen_do_fast_color_clear(struct r600_common_context *rctx,
 
 		evergreen_set_clear_color(tex, fb->cbufs[i]->format, color);
 
-		if(tex->dcc_buffer && vi_is_dcc_clear_allowed(fb->cbufs[i]->format, color, &dcc_reset_value)) {
+		if(tex->dcc_buffer && tex->resource.b.b.nr_samples <= 1 &&
+		   vi_is_dcc_clear_allowed(fb->cbufs[i]->format, color, &dcc_reset_value)) {
 			rctx->clear_buffer(&rctx->b, &tex->dcc_buffer->b.b,
 					0, tex->surface.dcc_size, dcc_reset_value, true);
 

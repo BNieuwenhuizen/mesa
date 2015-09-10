@@ -3761,8 +3761,30 @@ int si_shader_binary_read(struct si_screen *sscreen, struct si_shader *shader)
 	return 0;
 }
 
+
+static int si_load_shader(struct si_screen *sscreen, struct si_shader *shader)
+{
+	int r = 0;
+
+	if(!si_shader_cache_load(sscreen->shader_cache, shader))
+		return -ENOENT;
+
+	r = si_shader_binary_read(sscreen, shader);
+
+	FREE(shader->binary.config);
+	FREE(shader->binary.rodata);
+	FREE(shader->binary.global_symbol_offsets);
+	if (shader->scratch_bytes_per_wave == 0) {
+		FREE(shader->binary.code);
+		FREE(shader->binary.relocs);
+		memset(&shader->binary, 0,
+		       offsetof(struct radeon_shader_binary, disasm_string));
+	}
+	return r;
+}
+
 int si_compile_llvm(struct si_screen *sscreen, struct si_shader *shader,
-		    LLVMTargetMachineRef tm, LLVMModuleRef mod)
+		    LLVMTargetMachineRef tm, LLVMModuleRef mod, bool save)
 {
 	int r = 0;
 	bool dump_asm = r600_can_dump_shader(&sscreen->b,
@@ -3773,6 +3795,9 @@ int si_compile_llvm(struct si_screen *sscreen, struct si_shader *shader,
 		r600_get_llvm_processor_name(sscreen->b.family), dump_ir, dump_asm, tm);
 	if (r)
 		return r;
+
+	if(save)
+		si_shader_cache_save(sscreen->shader_cache, shader);
 
 	r = si_shader_binary_read(sscreen, shader);
 
@@ -3858,7 +3883,7 @@ static int si_generate_gs_copy_shader(struct si_screen *sscreen,
 		fprintf(stderr, "Copy Vertex Shader for Geometry Shader:\n\n");
 
 	r = si_compile_llvm(sscreen, si_shader_ctx->shader,
-			    si_shader_ctx->tm, bld_base->base.gallivm->module);
+			    si_shader_ctx->tm, bld_base->base.gallivm->module, false);
 
 	radeon_llvm_dispose(&si_shader_ctx->radeon_bld);
 
@@ -4044,37 +4069,39 @@ int si_shader_create(struct si_screen *sscreen, LLVMTargetMachineRef tm,
 		assert(!"Unsupported shader type");
 		return -1;
 	}
+	
+	if(si_load_shader(sscreen, shader) == -ENOENT) {
+		create_meta_data(&si_shader_ctx);
+		create_function(&si_shader_ctx);
+		preload_constants(&si_shader_ctx);
+		preload_samplers(&si_shader_ctx);
+		preload_streamout_buffers(&si_shader_ctx);
+		preload_ring_buffers(&si_shader_ctx);
 
-	create_meta_data(&si_shader_ctx);
-	create_function(&si_shader_ctx);
-	preload_constants(&si_shader_ctx);
-	preload_samplers(&si_shader_ctx);
-	preload_streamout_buffers(&si_shader_ctx);
-	preload_ring_buffers(&si_shader_ctx);
-
-	if (si_shader_ctx.type == TGSI_PROCESSOR_GEOMETRY) {
-		int i;
-		for (i = 0; i < 4; i++) {
-			si_shader_ctx.gs_next_vertex[i] =
-				lp_build_alloca(bld_base->base.gallivm,
-						bld_base->uint_bld.elem_type, "");
+		if (si_shader_ctx.type == TGSI_PROCESSOR_GEOMETRY) {
+			int i;
+			for (i = 0; i < 4; i++) {
+				si_shader_ctx.gs_next_vertex[i] =
+					lp_build_alloca(bld_base->base.gallivm,
+							bld_base->uint_bld.elem_type, "");
+			}
 		}
+
+		if (!lp_build_tgsi_llvm(bld_base, tokens)) {
+			fprintf(stderr, "Failed to translate shader from TGSI to LLVM\n");
+			goto out;
+		}
+
+		radeon_llvm_finalize_module(&si_shader_ctx.radeon_bld);
+
+		mod = bld_base->base.gallivm->module;
+		r = si_compile_llvm(sscreen, shader, tm, mod, true);
+		if (r) {
+			fprintf(stderr, "LLVM failed to compile shader\n");
+			goto out;
+		}
+
 	}
-
-	if (!lp_build_tgsi_llvm(bld_base, tokens)) {
-		fprintf(stderr, "Failed to translate shader from TGSI to LLVM\n");
-		goto out;
-	}
-
-	radeon_llvm_finalize_module(&si_shader_ctx.radeon_bld);
-
-	mod = bld_base->base.gallivm->module;
-	r = si_compile_llvm(sscreen, shader, tm, mod);
-	if (r) {
-		fprintf(stderr, "LLVM failed to compile shader\n");
-		goto out;
-	}
-
 	radeon_llvm_dispose(&si_shader_ctx.radeon_bld);
 
 	if (si_shader_ctx.type == TGSI_PROCESSOR_GEOMETRY) {

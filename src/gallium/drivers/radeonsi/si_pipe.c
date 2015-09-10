@@ -509,6 +509,8 @@ static void si_destroy_screen(struct pipe_screen* pscreen)
 	if (!sscreen->b.ws->unref(sscreen->b.ws))
 		return;
 
+	si_destroy_shader_cache(sscreen->shader_cache);
+
 	r600_destroy_common_screen(&sscreen->b);
 }
 
@@ -594,5 +596,7 @@ struct pipe_screen *radeonsi_screen_create(struct radeon_winsys *ws)
 	/* Create the auxiliary context. This must be done last. */
 	sscreen->b.aux_context = sscreen->b.b.context_create(&sscreen->b.b, NULL, 0);
 
+	sscreen->shader_cache = si_create_shader_cache();
+	
 	return &sscreen->b.b;
 }

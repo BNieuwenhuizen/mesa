@@ -83,8 +83,13 @@
 
 struct si_compute;
 
+struct si_shader_cache {
+	char* path;
+};
+
 struct si_screen {
 	struct r600_common_screen	b;
+	struct si_shader_cache		*shader_cache;
 };
 
 struct si_blend_color {
@@ -335,6 +340,12 @@ struct pipe_video_codec *si_uvd_create_decoder(struct pipe_context *context,
 
 struct pipe_video_buffer *si_video_buffer_create(struct pipe_context *pipe,
 						 const struct pipe_video_buffer *tmpl);
+
+/* si_shader_cache.c */
+struct si_shader_cache *si_create_shader_cache(void);
+void si_destroy_shader_cache(struct si_shader_cache *cache);
+bool si_shader_cache_load(struct si_shader_cache *cache, struct si_shader *shader);
+void si_shader_cache_save(struct si_shader_cache *cache, struct si_shader *shader);
 
 /*
  * common helpers

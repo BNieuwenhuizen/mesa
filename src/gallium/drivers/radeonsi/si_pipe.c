@@ -341,6 +341,7 @@ static int si_get_param(struct pipe_screen* pscreen, enum pipe_cap param)
 	case PIPE_CAP_TGSI_PACK_HALF_FLOAT:
 	case PIPE_CAP_FRAMEBUFFER_NO_ATTACHMENT:
 	case PIPE_CAP_ROBUST_BUFFER_ACCESS_BEHAVIOR:
+	case PIPE_CAP_CLEAR_TEXTURE:
 		return 1;
 
 	case PIPE_CAP_RESOURCE_FROM_USER_MEMORY:
@@ -389,7 +390,6 @@ static int si_get_param(struct pipe_screen* pscreen, enum pipe_cap param)
 	case PIPE_CAP_FAKE_SW_MSAA:
 	case PIPE_CAP_TEXTURE_GATHER_OFFSETS:
 	case PIPE_CAP_VERTEXID_NOBASE:
-	case PIPE_CAP_CLEAR_TEXTURE:
 	case PIPE_CAP_DRAW_PARAMETERS:
 	case PIPE_CAP_MULTI_DRAW_INDIRECT:
 	case PIPE_CAP_MULTI_DRAW_INDIRECT_PARAMS:

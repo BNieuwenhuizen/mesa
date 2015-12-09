@@ -24,6 +24,7 @@
 #include "si_pipe.h"
 #include "util/u_format.h"
 #include "util/u_surface.h"
+#include "util/u_math.h"
 
 enum si_blitter_op /* bitmask */
 {
@@ -576,6 +577,79 @@ static void si_clear_depth_stencil(struct pipe_context *ctx,
 	si_blitter_end(ctx);
 }
 
+static void si_clear_texture(struct pipe_context *pipe,
+			     struct pipe_resource *res,
+			     unsigned level,
+			     const struct pipe_box *box,
+			     const void *data)
+{
+   struct pipe_surface tmpl = {{0}}, *sf;
+
+   tmpl.format = res->format;
+   tmpl.u.tex.first_layer = box->z;
+   tmpl.u.tex.last_layer = box->z + box->depth - 1;
+   tmpl.u.tex.level = level;
+   sf = pipe->create_surface(pipe, res, &tmpl);
+   if (!sf)
+      return;
+
+   if (util_format_is_depth_or_stencil(res->format)) {
+      float depth = 0;
+      uint8_t stencil = 0;
+      unsigned clear = 0;
+      const struct util_format_description *desc =
+         util_format_description(res->format);
+
+      if (util_format_has_depth(desc)) {
+         clear |= PIPE_CLEAR_DEPTH;
+         desc->unpack_z_float(&depth, 0, data, 0, 1, 1);
+      }
+      if (util_format_has_stencil(desc)) {
+         clear |= PIPE_CLEAR_STENCIL;
+         desc->unpack_s_8uint(&stencil, 0, data, 0, 1, 1);
+      }
+      pipe->clear_depth_stencil(pipe, sf, clear, depth, stencil,
+                                box->x, box->y, box->width, box->height);
+   } else {
+      union pipe_color_union color;
+
+      switch (util_format_get_blocksizebits(res->format)) {
+      case 128:
+         sf->format = PIPE_FORMAT_R32G32B32A32_UINT;
+         memcpy(&color.ui, data, 128 / 8);
+         break;
+      case 64:
+         sf->format = PIPE_FORMAT_R32G32_UINT;
+         memcpy(&color.ui, data, 64 / 8);
+         memset(&color.ui[2], 0, 64 / 8);
+         break;
+      case 32:
+         sf->format = PIPE_FORMAT_R32_UINT;
+         memcpy(&color.ui, data, 32 / 8);
+         memset(&color.ui[1], 0, 96 / 8);
+         break;
+      case 16:
+         sf->format = PIPE_FORMAT_R16_UINT;
+         color.ui[0] = util_cpu_to_le32(
+            util_le16_to_cpu(*(unsigned short *)data));
+         memset(&color.ui[1], 0, 96 / 8);
+         break;
+      case 8:
+         sf->format = PIPE_FORMAT_R8_UINT;
+         color.ui[0] = util_cpu_to_le32(*(unsigned char *)data);
+         memset(&color.ui[1], 0, 96 / 8);
+         break;
+      default:
+         assert(!"Unknown texel element size");
+         return;
+      }
+
+      pipe->clear_render_target(pipe, sf, &color,
+                                box->x, box->y, box->width, box->height);
+   }
+   pipe->surface_destroy(pipe, sf);
+}
+
 /* Helper for decompressing a portion of a color or depth resource before
  * blitting if any decompression is needed.
  * The driver doesn't decompress resources automatically while u_blitter is
@@ -960,6 +1034,7 @@ void si_init_blit_functions(struct si_context *sctx)
 	sctx->b.b.clear_buffer = si_pipe_clear_buffer;
 	sctx->b.b.clear_render_target = si_clear_render_target;
 	sctx->b.b.clear_depth_stencil = si_clear_depth_stencil;
+	sctx->b.b.clear_texture = si_clear_texture;
 	sctx->b.b.resource_copy_region = si_resource_copy_region;
 	sctx->b.b.blit = si_blit;
 	sctx->b.b.flush_resource = si_flush_resource;

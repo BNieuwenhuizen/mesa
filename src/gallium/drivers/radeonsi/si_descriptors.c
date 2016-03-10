@@ -87,7 +87,8 @@ static uint32_t null_descriptor[8] = {
 static void si_init_descriptors(struct si_descriptors *desc,
 				unsigned shader_userdata_index,
 				unsigned element_dw_size,
-				unsigned num_elements)
+				unsigned num_elements,
+				unsigned *ce_offset)
 {
 	int i;
 
@@ -99,6 +100,9 @@ static void si_init_descriptors(struct si_descriptors *desc,
 	desc->list_dirty = true; /* upload the list before the next draw */
 	desc->dirty_mask = num_elements == 64 ? ~0llu : (1llu << num_elements) - 1;
 	desc->shader_userdata_offset = shader_userdata_index * 4;
+	desc->ce_offset = *ce_offset;
+
+	*ce_offset += element_dw_size * num_elements * 4;
 
 	/* Initialize the array to NULL descriptors if the element size is 8. */
 	if (element_dw_size % 8 == 0)
@@ -315,14 +319,15 @@ static void si_init_buffer_resources(struct si_buffer_resources *buffers,
 				     unsigned num_buffers,
 				     unsigned shader_userdata_index,
 				     enum radeon_bo_usage shader_usage,
-				     enum radeon_bo_priority priority)
+				     enum radeon_bo_priority priority,
+				     unsigned *ce_offset)
 {
 	buffers->shader_usage = shader_usage;
 	buffers->priority = priority;
 	buffers->buffers = CALLOC(num_buffers, sizeof(struct pipe_resource*));
 
 	si_init_descriptors(&buffers->desc, shader_userdata_index, 4,
-			    num_buffers);
+			    num_buffers, ce_offset);
 }
 
 static void si_release_buffer_resources(struct si_buffer_resources *buffers)
@@ -1029,21 +1034,24 @@ void si_emit_shader_userdata(struct si_context *sctx, struct r600_atom *atom)
 void si_init_all_descriptors(struct si_context *sctx)
 {
 	int i;
+	unsigned ce_offset = 0;
 
 	for (i = 0; i < SI_NUM_SHADERS; i++) {
 		si_init_buffer_resources(&sctx->const_buffers[i],
 					 SI_NUM_CONST_BUFFERS, SI_SGPR_CONST_BUFFERS,
-					 RADEON_USAGE_READ, RADEON_PRIO_CONST_BUFFER);
+					 RADEON_USAGE_READ, RADEON_PRIO_CONST_BUFFER, &ce_offset);
 		si_init_buffer_resources(&sctx->rw_buffers[i],
 					 SI_NUM_RW_BUFFERS, SI_SGPR_RW_BUFFERS,
-					 RADEON_USAGE_READWRITE, RADEON_PRIO_RINGS_STREAMOUT);
+					 RADEON_USAGE_READWRITE, RADEON_PRIO_RINGS_STREAMOUT, &ce_offset);
 
 		si_init_descriptors(&sctx->samplers[i].views.desc,
-				    SI_SGPR_SAMPLERS, 16, SI_NUM_SAMPLERS);
+				    SI_SGPR_SAMPLERS, 16, SI_NUM_SAMPLERS, &ce_offset);
 	}
 
 	si_init_descriptors(&sctx->vertex_buffers, SI_SGPR_VERTEX_BUFFERS,
-			    4, SI_NUM_VERTEX_BUFFERS);
+			    4, SI_NUM_VERTEX_BUFFERS, &ce_offset);
+
+	sctx->const_buffer_ce_offset = ce_offset;
 
 	/* Set pipe_context functions. */
 	sctx->b.b.bind_sampler_states = si_bind_sampler_states;

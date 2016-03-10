@@ -200,7 +200,7 @@ struct si_context {
 	struct si_screen		*screen;
 	struct radeon_winsys_cs		*ce_ib;
 	bool				ce_need_synchronization;
-
+	unsigned			const_buffer_ce_offset;
 
 	struct pipe_fence_handle	*last_gfx_fence;
 	struct si_shader_ctx_state	fixed_func_tcs_shader;

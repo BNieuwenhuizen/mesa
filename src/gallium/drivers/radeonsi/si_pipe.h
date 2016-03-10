@@ -199,6 +199,8 @@ struct si_context {
 	void				*pstipple_sampler_state;
 	struct si_screen		*screen;
 	struct radeon_winsys_cs		*ce_ib;
+	bool				ce_need_synchronization;
+
 
 	struct pipe_fence_handle	*last_gfx_fence;
 	struct si_shader_ctx_state	fixed_func_tcs_shader;

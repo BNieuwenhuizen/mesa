@@ -771,6 +771,8 @@ static void si_set_clip_state(struct pipe_context *ctx,
 	cb.user_buffer = state->ucp;
 	cb.buffer_offset = 0;
 	cb.buffer_size = 4*4*8;
+	cb.dirty_begin = 0;
+	cb.dirty_end = cb.buffer_size;
 	ctx->set_constant_buffer(ctx, PIPE_SHADER_VERTEX, SI_DRIVER_STATE_CONST_BUF, &cb);
 	pipe_resource_reference(&cb.buffer, NULL);
 }
@@ -2621,6 +2623,8 @@ static void si_set_framebuffer_state(struct pipe_context *ctx,
 			assert(0);
 		}
 		constbuf.buffer_size = sctx->framebuffer.nr_samples * 2 * 4;
+		constbuf.dirty_begin = 0;
+		constbuf.dirty_end = constbuf.buffer_size;
 		ctx->set_constant_buffer(ctx, PIPE_SHADER_FRAGMENT,
 					 SI_DRIVER_STATE_CONST_BUF, &constbuf);
 
@@ -3484,6 +3488,8 @@ static void si_set_tess_state(struct pipe_context *ctx,
 	cb.buffer = NULL;
 	cb.user_buffer = NULL;
 	cb.buffer_size = sizeof(array);
+	cb.dirty_begin = 0;
+	cb.dirty_end = cb.buffer_size;
 
 	si_upload_const_buffer(sctx, (struct r600_resource**)&cb.buffer,
 			       (void*)array, sizeof(array),

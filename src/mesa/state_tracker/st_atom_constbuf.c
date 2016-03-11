@@ -77,6 +77,8 @@ void st_upload_constants( struct st_context *st,
       if (params->StateFlags)
          _mesa_load_state_parameters(st->ctx, params);
 
+      cb.buffer_size = paramBytes;
+
       /* We always need to get a new buffer, to keep the drivers simple and
        * avoid gratuitous rendering synchronization.
        * Let's use a user buffer to avoid an unnecessary copy.
@@ -92,8 +94,9 @@ void st_upload_constants( struct st_context *st,
          cb.buffer = NULL;
          cb.user_buffer = params->ParameterValues;
          cb.buffer_offset = 0;
+	 cb.dirty_begin = 0;
+	 cb.dirty_end = cb.buffer_size;
       }
-      cb.buffer_size = paramBytes;
 
       if (ST_DEBUG & DEBUG_CONSTANTS) {
          debug_printf("%s(shader=%d, numParams=%d, stateFlags=0x%x)\n",

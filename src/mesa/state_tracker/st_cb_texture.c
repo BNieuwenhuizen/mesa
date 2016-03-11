@@ -1447,6 +1447,8 @@ try_pbo_upload_common(struct gl_context *ctx,
       constants.stride = stride;
       constants.image_size = stride * image_height;
 
+      cb.buffer_size = sizeof(constants);
+
       if (st->constbuf_uploader) {
          cb.buffer = NULL;
          cb.user_buffer = NULL;
@@ -1461,8 +1463,9 @@ try_pbo_upload_common(struct gl_context *ctx,
          cb.buffer = NULL;
          cb.user_buffer = &constants;
          cb.buffer_offset = 0;
+         cb.dirty_begin = 0;
+         cb.dirty_end = cb.buffer_size;
       }
-      cb.buffer_size = sizeof(constants);
 
       cso_set_constant_buffer(cso, PIPE_SHADER_FRAGMENT, 0, &cb);
 

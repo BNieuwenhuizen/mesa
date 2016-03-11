@@ -199,14 +199,14 @@ amdgpu_ctx_query_reset_status(struct radeon_winsys_ctx *rwctx)
 /* COMMAND SUBMISSION */
 
 static bool amdgpu_get_new_ib(struct radeon_winsys *ws, struct amdgpu_ib *ib,
-                              struct amdgpu_cs_ib_info *info)
+                              struct amdgpu_cs_ib_info *info, unsigned ib_type)
 {
    /* Small IBs are better than big IBs, because the GPU goes idle quicker
     * and there is less waiting for buffers and fences. Proof:
     *   http://www.phoronix.com/scan.php?page=article&item=mesa-111-si&num=1
     */
-   const unsigned buffer_size = 128 * 1024 * 4;
-   const unsigned ib_size = 20 * 1024 * 4;
+   const unsigned buffer_size = 512 * 1024 * 4;
+   const unsigned ib_size = ib_type == IB_MAIN ? 20 * 1024 * 4 : 256 * 1024 * 4;
 
    ib->base.cdw = 0;
    ib->base.buf = NULL;
@@ -351,7 +351,7 @@ amdgpu_cs_create(struct radeon_winsys_ctx *rwctx,
       return NULL;
    }
 
-   if (!amdgpu_get_new_ib(&ctx->ws->base, &cs->main, &cs->ib[IB_MAIN])) {
+   if (!amdgpu_get_new_ib(&ctx->ws->base, &cs->main, &cs->ib[IB_MAIN], IB_MAIN)) {
       amdgpu_destroy_cs_context(cs);
       FREE(cs);
       return NULL;
@@ -374,7 +374,7 @@ amdgpu_cs_add_const_ib(struct radeon_winsys_cs *rcs)
    if (cs->ring_type != RING_GFX || cs->const_ib.ib_mapped)
       return NULL;
 
-   if (!amdgpu_get_new_ib(&ws->base, &cs->const_ib, &cs->ib[IB_CONST]))
+   if (!amdgpu_get_new_ib(&ws->base, &cs->const_ib, &cs->ib[IB_CONST], IB_CONST))
       return NULL;
 
    cs->request.number_of_ibs = 2;
@@ -727,9 +727,9 @@ static void amdgpu_cs_flush(struct radeon_winsys_cs *rcs,
 cleanup:
    amdgpu_cs_context_cleanup(cs);
 
-   amdgpu_get_new_ib(&ws->base, &cs->main, &cs->ib[IB_MAIN]);
+   amdgpu_get_new_ib(&ws->base, &cs->main, &cs->ib[IB_MAIN], IB_MAIN);
    if (cs->const_ib.ib_mapped)
-      amdgpu_get_new_ib(&ws->base, &cs->const_ib, &cs->ib[IB_CONST]);
+      amdgpu_get_new_ib(&ws->base, &cs->const_ib, &cs->ib[IB_CONST], IB_CONST);
 
    ws->num_cs_flushes++;
 }

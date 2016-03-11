@@ -204,6 +204,7 @@ struct si_context {
 	bool				ce_need_synchronization;
 	struct u_suballocator		*ce_suballocator;
 	unsigned			const_buffer_ce_offset;
+	uint32_t			const_buffer_in_ce_ram;
 
 	struct pipe_fence_handle	*last_gfx_fence;
 	struct si_shader_ctx_state	fixed_func_tcs_shader;

@@ -555,6 +555,37 @@ void si_upload_const_buffer(struct si_context *sctx, struct r600_resource **rbuf
 		util_memcpy_cpu_to_le32(tmp, ptr, size);
 }
 
+static void si_update_const_buffer(struct si_context *sctx, unsigned shader,
+			    struct r600_resource **rbuffer, uint32_t *const_offset,
+			    const uint8_t *ptr, unsigned size,
+			    unsigned dirty_begin, unsigned dirty_end)
+{
+	unsigned dirty_size;
+	if (!(sctx->const_buffer_in_ce_ram & (1U << shader))) {
+		dirty_begin = 0;
+		dirty_end = size;
+	}
+
+	if (dirty_begin < dirty_end) {
+		dirty_begin &= ~3U;
+		dirty_end = (dirty_end + 3U) & ~3U;
+
+		dirty_size = dirty_end - dirty_begin;
+
+		radeon_emit(sctx->ce_ib,
+			    PKT3(PKT3_WRITE_CONST_RAM, dirty_size / 4, 0));
+		radeon_emit(sctx->ce_ib,
+			    sctx->const_buffer_ce_offset + 4096 * shader + dirty_begin);
+		radeon_emit_array(sctx->ce_ib, (const uint32_t*)(ptr + dirty_begin),
+				  dirty_size / 4);
+
+		sctx->const_buffer_in_ce_ram |= 1U << shader;
+	}
+
+	si_ce_upload(sctx, sctx->const_buffer_ce_offset + 4096 * shader, size,
+		     const_offset, rbuffer);
+}
+
 static void si_set_constant_buffer(struct pipe_context *ctx, uint shader, uint slot,
 				   struct pipe_constant_buffer *input)
 {
@@ -581,9 +612,20 @@ static void si_set_constant_buffer(struct pipe_context *ctx, uint shader, uint s
 		if (input->user_buffer) {
 			unsigned buffer_offset;
 
-			si_upload_const_buffer(sctx,
-					       (struct r600_resource**)&buffer, input->user_buffer,
-					       input->buffer_size, &buffer_offset);
+			if (sctx->ce_ib && input->buffer_size <= 4096 && slot == 0)
+				si_update_const_buffer(sctx, shader,
+						       (struct r600_resource**)&buffer,
+						       &buffer_offset,
+						       input->user_buffer,
+						       input->buffer_size,
+						       input->dirty_begin,
+						       input->dirty_end);
+			else
+				si_upload_const_buffer(sctx,
+						       (struct r600_resource**)&buffer,
+						       input->user_buffer,
+						       input->buffer_size,
+						       &buffer_offset);
 			if (!buffer) {
 				/* Just unbind on failure. */
 				si_set_constant_buffer(ctx, shader, slot, NULL);
@@ -1174,4 +1216,6 @@ void si_all_descriptors_begin_new_cs(struct si_context *sctx)
 	}
 	si_vertex_buffers_begin_new_cs(sctx);
 	si_shader_userdata_begin_new_cs(sctx);
+
+	sctx->const_buffer_in_ce_ram = 0;
 }

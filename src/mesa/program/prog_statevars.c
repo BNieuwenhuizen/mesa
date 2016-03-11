@@ -1072,6 +1072,8 @@ _mesa_load_state_parameters(struct gl_context *ctx,
          _mesa_fetch_state(ctx,
 			   paramList->Parameters[i].StateIndexes,
                            &paramList->ParameterValues[i][0].f);
+         paramList->DirtyBegin = MIN2(paramList->DirtyBegin, 4 * sizeof(GLfloat) * i);
+	 paramList->DirtyEnd = MAX2(paramList->DirtyEnd, 4 * sizeof(GLfloat) * (i + 1));
       }
    }
 }

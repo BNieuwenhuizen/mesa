@@ -94,8 +94,17 @@ void st_upload_constants( struct st_context *st,
          cb.buffer = NULL;
          cb.user_buffer = params->ParameterValues;
          cb.buffer_offset = 0;
-	 cb.dirty_begin = 0;
-	 cb.dirty_end = cb.buffer_size;
+
+         if (st->previous_program_constants[shader_type] != params) {
+            cb.dirty_begin = 0;
+            cb.dirty_end = cb.buffer_size;
+            st->previous_program_constants[shader_type] = params;
+         } else {
+            cb.dirty_begin = params->DirtyBegin;
+            cb.dirty_end = params->DirtyEnd;
+            params->DirtyBegin = paramBytes;
+            params->DirtyEnd = 0;
+         }
       }
 
       if (ST_DEBUG & DEBUG_CONSTANTS) {

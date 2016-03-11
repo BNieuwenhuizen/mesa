@@ -1465,6 +1465,7 @@ try_pbo_upload_common(struct gl_context *ctx,
          cb.buffer_offset = 0;
          cb.dirty_begin = 0;
          cb.dirty_end = cb.buffer_size;
+         st->previous_program_constants[PIPE_SHADER_FRAGMENT] = NULL;
       }
 
       cso_set_constant_buffer(cso, PIPE_SHADER_FRAGMENT, 0, &cb);

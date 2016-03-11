@@ -371,7 +371,8 @@ _mesa_uniform_attach_driver_storage(struct gl_uniform_storage *,
 				    unsigned element_stride,
 				    unsigned vector_stride,
 				    enum gl_uniform_driver_format format,
-				    void *data);
+				    void *data,
+				    struct gl_program_parameter_list *list);
 
 extern void
 _mesa_uniform_detach_all_driver_storage(struct gl_uniform_storage *uni);

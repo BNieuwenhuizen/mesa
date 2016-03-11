@@ -523,6 +523,17 @@ log_program_parameters(const struct gl_shader_program *shProg)
 }
 #endif
 
+static void mark_parameters_dirty(struct gl_program_parameter_list *list,
+				  const uint8_t* begin_pointer,
+				  const uint8_t* end_pointer)
+{
+   unsigned begin = begin_pointer - (const uint8_t*)list->ParameterValues;
+   unsigned end = end_pointer - (const uint8_t*)list->ParameterValues;
+
+   list->DirtyBegin = MIN2(list->DirtyBegin, begin);
+   list->DirtyEnd = MAX2(list->DirtyEnd, end);
+}
+
 /**
  * Propagate some values from uniform backing storage to driver storage
  *
@@ -572,6 +583,8 @@ _mesa_propagate_uniforms_to_driver_storage(struct gl_uniform_storage *uni,
 
       dst += array_index * store->element_stride;
 
+      uint8_t* dst_begin = dst;
+
       switch (store->format) {
       case uniform_native: {
 	 unsigned j;
@@ -614,6 +627,8 @@ _mesa_propagate_uniforms_to_driver_storage(struct gl_uniform_storage *uni,
 	 assert(!"Should not get here.");
 	 break;
       }
+
+      mark_parameters_dirty(store->parameter_list, dst_begin, dst);
    }
 }
 

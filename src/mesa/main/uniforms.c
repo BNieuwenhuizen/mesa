@@ -117,7 +117,8 @@ _mesa_uniform_attach_driver_storage(struct gl_uniform_storage *uni,
 				    unsigned element_stride,
 				    unsigned vector_stride,
 				    enum gl_uniform_driver_format format,
-				    void *data)
+				    void *data,
+				    struct gl_program_parameter_list *list)
 {
    uni->driver_storage =
       realloc(uni->driver_storage,
@@ -128,6 +129,7 @@ _mesa_uniform_attach_driver_storage(struct gl_uniform_storage *uni,
    uni->driver_storage[uni->num_driver_storage].vector_stride = vector_stride;
    uni->driver_storage[uni->num_driver_storage].format = format;
    uni->driver_storage[uni->num_driver_storage].data = data;
+   uni->driver_storage[uni->num_driver_storage].parameter_list = list;
 
    uni->num_driver_storage++;
 }

@@ -2501,7 +2501,8 @@ _mesa_associate_uniform_storage(struct gl_context *ctx,
 					     dmul * columns,
 					     dmul,
 					     format,
-					     &params->ParameterValues[i]);
+					     &params->ParameterValues[i],
+					     params);
 
 	 /* After attaching the driver's storage to the uniform, propagate any
 	  * data from the linker's backing store.  This will cause values from

@@ -59,6 +59,8 @@ _mesa_new_parameter_list_sized(unsigned size)
       p->ParameterValues = (gl_constant_value (*)[4])
          _mesa_align_malloc(size * 4 *sizeof(gl_constant_value), 16);
 
+      p->DirtyBegin = 0;
+      p->DirtyEnd = size * 4 *sizeof(gl_constant_value);
 
       if ((p->Parameters == NULL) || (p->ParameterValues == NULL)) {
 	 free(p->Parameters);
@@ -159,6 +161,8 @@ _mesa_add_parameter(struct gl_program_parameter_list *paramList,
       GLuint i, j;
 
       paramList->NumParameters = oldNum + sz4;
+      paramList->DirtyBegin = 0;
+      paramList->DirtyEnd = paramList->NumParameters * 4 * sizeof(gl_constant_value);
 
       memset(&paramList->Parameters[oldNum], 0,
              sz4 * sizeof(struct gl_program_parameter));

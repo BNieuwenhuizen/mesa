@@ -1282,6 +1282,8 @@ hud_create(struct pipe_context *pipe, struct cso_context *cso)
    /* constants */
    hud->constbuf.buffer_size = sizeof(hud->constants);
    hud->constbuf.user_buffer = &hud->constants;
+   hud->constbuf.dirty_begin = 0;
+   hud->constbuf.dirty_end = sizeof(hud->constants);
 
    LIST_INITHEAD(&hud->pane_list);
 

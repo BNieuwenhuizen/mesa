@@ -67,6 +67,8 @@ struct gl_uniform_driver_storage {
     * Pointer to the base of the data.
     */
    void *data;
+
+   struct gl_program_parameter_list *parameter_list;
 };
 
 struct gl_opaque_uniform_index {

@@ -87,6 +87,8 @@ struct gl_program_parameter_list
    gl_constant_value (*ParameterValues)[4]; /**< Array [Size] of constant[4] */
    GLbitfield StateFlags; /**< _NEW_* flags indicating which state changes
                                might invalidate ParameterValues[] */
+
+   uint32_t DirtyBegin, DirtyEnd;
 };
 
 

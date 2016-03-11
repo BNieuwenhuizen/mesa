@@ -427,18 +427,22 @@ static bool si_upload_vertex_buffer_descriptors(struct si_context *sctx)
 	if (!count || !sctx->vertex_elements)
 		return true;
 
-	/* Vertex buffer descriptors are the only ones which are uploaded
-	 * directly through a staging buffer and don't go through
-	 * the fine-grained upload path.
-	 */
-	u_upload_alloc(sctx->b.uploader, 0, count * 16, 256, &desc->buffer_offset,
-		       (struct pipe_resource**)&desc->buffer, (void**)&ptr);
-	if (!desc->buffer)
-		return false;
+	if (sctx->ce_ib) {
+		radeon_emit(sctx->ce_ib, PKT3(PKT3_WRITE_CONST_RAM, 4 * count, 0));
+		radeon_emit(sctx->ce_ib, desc->ce_offset);
+		ptr = sctx->ce_ib->buf + sctx->ce_ib->cdw;
+		sctx->ce_ib->cdw += count * 4;
+	} else {
 
-	radeon_add_to_buffer_list(&sctx->b, &sctx->b.gfx,
-			      desc->buffer, RADEON_USAGE_READ,
-			      RADEON_PRIO_DESCRIPTORS);
+		/* Vertex buffer descriptors are the only ones which are uploaded
+		* directly through a staging buffer and don't go through
+		* the fine-grained upload path.
+		*/
+		u_upload_alloc(sctx->b.uploader, 0, count * 16, 256, &desc->buffer_offset,
+			(struct pipe_resource**)&desc->buffer, (void**)&ptr);
+		if (!desc->buffer)
+			return false;
+	}
 
 	assert(count <= SI_NUM_VERTEX_BUFFERS);
 
@@ -486,6 +490,16 @@ static bool si_upload_vertex_buffer_descriptors(struct si_context *sctx)
 			bound[ve->vertex_buffer_index] = true;
 		}
 	}
+
+	if (sctx->ce_ib) {
+		if (!si_ce_upload(sctx, desc->ce_offset, count * 16,
+		                  &desc->buffer_offset, &desc->buffer))
+			return false;
+	}
+
+	radeon_add_to_buffer_list(&sctx->b, &sctx->b.gfx,
+			      desc->buffer, RADEON_USAGE_READ,
+			      RADEON_PRIO_DESCRIPTORS);
 
 	/* Don't flush the const cache. It would have a very negative effect
 	 * on performance (confirmed by testing). New descriptors are always

@@ -91,6 +91,7 @@ struct radeon_shader_reloc;
 #define SI_SGPR_TCS_OUT_LAYOUT	11 /* TCS & TES only */
 #define SI_SGPR_TCS_IN_LAYOUT	12 /* TCS only */
 #define SI_SGPR_ALPHA_REF	10 /* PS only */
+#define SI_SGPR_GRID_SIZE	10 /* CS only */
 
 #define SI_VS_NUM_USER_SGPR	15 /* API VS */
 #define SI_ES_NUM_USER_SGPR	14 /* API VS */
@@ -100,6 +101,7 @@ struct radeon_shader_reloc;
 #define SI_GS_NUM_USER_SGPR	10
 #define SI_GSCOPY_NUM_USER_SGPR	4
 #define SI_PS_NUM_USER_SGPR	11
+#define SI_CS_NUM_USER_SGPR	13
 
 /* LLVM function parameter indices */
 #define SI_PARAM_RW_BUFFERS	0
@@ -172,6 +174,11 @@ struct radeon_shader_reloc;
 #define SI_PARAM_ANCILLARY		20
 #define SI_PARAM_SAMPLE_COVERAGE	21
 #define SI_PARAM_POS_FIXED_PT		22
+
+/* CS only parameters */
+#define SI_PARAM_GRID_SIZE		5
+#define SI_PARAM_BLOCK_ID		6
+#define SI_PARAM_THREAD_ID		7
 
 #define SI_NUM_PARAMS (SI_PARAM_POS_FIXED_PT + 9) /* +8 for COLOR[0..1] */
 

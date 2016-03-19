@@ -444,6 +444,9 @@ static void si_launch_grid(
 	if (!si_switch_compute_shader(sctx, program, &program->shader, info->pc))
 		return;
 
+	si_upload_compute_shader_descriptors(sctx);
+	si_emit_compute_shader_userdata(sctx);
+
 	if (program->input_size)
 		si_upload_compute_input(sctx, info);
 

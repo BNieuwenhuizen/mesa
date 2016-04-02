@@ -607,8 +607,6 @@ void si_emit_cache_flush(struct si_context *si_ctx, struct r600_atom *atom)
 	struct r600_common_context *sctx = &si_ctx->b;
 	struct radeon_winsys_cs *cs = sctx->gfx.cs;
 	uint32_t cp_coher_cntl = 0;
-	uint32_t compute =
-		PKT3_SHADER_TYPE_S(!!(sctx->flags & SI_CONTEXT_FLAG_COMPUTE));
 
 	/* SI has a bug that it always flushes ICACHE and KCACHE if either
 	 * bit is set. An alternative way is to write SQC_CACHES, but that
@@ -646,7 +644,7 @@ void si_emit_cache_flush(struct si_context *si_ctx, struct r600_atom *atom)
 
 		/* Necessary for DCC */
 		if (sctx->chip_class >= VI) {
-			radeon_emit(cs, PKT3(PKT3_EVENT_WRITE_EOP, 4, 0) | compute);
+			radeon_emit(cs, PKT3(PKT3_EVENT_WRITE_EOP, 4, 0));
 			radeon_emit(cs, EVENT_TYPE(V_028A90_FLUSH_AND_INV_CB_DATA_TS) |
 			                EVENT_INDEX(5));
 			radeon_emit(cs, 0);
@@ -661,18 +659,13 @@ void si_emit_cache_flush(struct si_context *si_ctx, struct r600_atom *atom)
 	}
 
 	if (sctx->flags & SI_CONTEXT_FLUSH_AND_INV_CB_META) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
+		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 		radeon_emit(cs, EVENT_TYPE(V_028A90_FLUSH_AND_INV_CB_META) | EVENT_INDEX(0));
 	}
 	if (sctx->flags & SI_CONTEXT_FLUSH_AND_INV_DB_META) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
+		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 		radeon_emit(cs, EVENT_TYPE(V_028A90_FLUSH_AND_INV_DB_META) | EVENT_INDEX(0));
 	}
-	if (sctx->flags & SI_CONTEXT_FLUSH_WITH_INV_L2) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
-		radeon_emit(cs, EVENT_TYPE(EVENT_TYPE_CACHE_FLUSH) | EVENT_INDEX(7) |
-				EVENT_WRITE_INV_L2);
-        }
 
 	/* FLUSH_AND_INV events must be emitted before PS_PARTIAL_FLUSH.
 	 * Otherwise, clearing CMASK (CB meta) with CP DMA isn't reliable.
@@ -681,22 +674,22 @@ void si_emit_cache_flush(struct si_context *si_ctx, struct r600_atom *atom)
 	 * and it is PS_PARTIAL_FLUSH that waits for it to complete.
 	 */
 	if (sctx->flags & SI_CONTEXT_PS_PARTIAL_FLUSH) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
+		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 		radeon_emit(cs, EVENT_TYPE(V_028A90_PS_PARTIAL_FLUSH) | EVENT_INDEX(4));
 	} else if (sctx->flags & SI_CONTEXT_VS_PARTIAL_FLUSH) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
+		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 		radeon_emit(cs, EVENT_TYPE(V_028A90_VS_PARTIAL_FLUSH) | EVENT_INDEX(4));
 	}
 	if (sctx->flags & SI_CONTEXT_CS_PARTIAL_FLUSH) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
+		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 		radeon_emit(cs, EVENT_TYPE(V_028A90_CS_PARTIAL_FLUSH | EVENT_INDEX(4)));
 	}
 	if (sctx->flags & SI_CONTEXT_VGT_FLUSH) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
+		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 		radeon_emit(cs, EVENT_TYPE(V_028A90_VGT_FLUSH) | EVENT_INDEX(0));
 	}
 	if (sctx->flags & SI_CONTEXT_VGT_STREAMOUT_SYNC) {
-		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0) | compute);
+		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
 		radeon_emit(cs, EVENT_TYPE(V_028A90_VGT_STREAMOUT_SYNC) | EVENT_INDEX(0));
 	}
 
@@ -706,7 +699,7 @@ void si_emit_cache_flush(struct si_context *si_ctx, struct r600_atom *atom)
 	 */
 	if (cp_coher_cntl) {
 		if (sctx->chip_class >= CIK) {
-			radeon_emit(cs, PKT3(PKT3_ACQUIRE_MEM, 5, 0) | compute);
+			radeon_emit(cs, PKT3(PKT3_ACQUIRE_MEM, 5, 0));
 			radeon_emit(cs, cp_coher_cntl);   /* CP_COHER_CNTL */
 			radeon_emit(cs, 0xffffffff);      /* CP_COHER_SIZE */
 			radeon_emit(cs, 0xff);            /* CP_COHER_SIZE_HI */
@@ -714,7 +707,7 @@ void si_emit_cache_flush(struct si_context *si_ctx, struct r600_atom *atom)
 			radeon_emit(cs, 0);               /* CP_COHER_BASE_HI */
 			radeon_emit(cs, 0x0000000A);      /* POLL_INTERVAL */
 		} else {
-			radeon_emit(cs, PKT3(PKT3_SURFACE_SYNC, 3, 0) | compute);
+			radeon_emit(cs, PKT3(PKT3_SURFACE_SYNC, 3, 0));
 			radeon_emit(cs, cp_coher_cntl);   /* CP_COHER_CNTL */
 			radeon_emit(cs, 0xffffffff);      /* CP_COHER_SIZE */
 			radeon_emit(cs, 0);               /* CP_COHER_BASE */

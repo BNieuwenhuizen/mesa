@@ -133,6 +133,8 @@ struct si_sampler_state {
 
 struct si_cs_shader_state {
 	struct si_compute		*program;
+	struct r600_resource		*emitted_bo;
+	unsigned			offset;
 	bool				initialized;
 };
 

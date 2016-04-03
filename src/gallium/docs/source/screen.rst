@@ -323,7 +323,9 @@ The integer capabilities:
 * ``PIPE_CAP_PCI_BUS``: Return the PCI bus number.
 * ``PIPE_CAP_PCI_DEVICE``: Return the PCI device number.
 * ``PIPE_CAP_PCI_FUNCTION``: Return the PCI function number.
-
+* ``PIPE_CAP_ROBUST_BUFFER_ACCESS``: Implementation uses bounds checking on
+  resource accesses by shader if the context is create with
+  PIPE_CONTEXT_ROBUST_BUFFER_ACCESS.
 
 .. _pipe_capf:
 

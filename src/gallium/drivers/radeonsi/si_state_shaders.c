@@ -247,7 +247,8 @@ void si_destroy_shader_cache(struct si_screen *sscreen)
 
 /* SHADER STATES */
 
-static void si_set_tesseval_regs(struct si_shader *shader,
+static void si_set_tesseval_regs(struct si_context *sctx,
+				 struct si_shader *shader,
 				 struct si_pm4_state *pm4)
 {
 	struct tgsi_shader_info *info = &shader->selector->info;
@@ -300,7 +301,8 @@ static void si_set_tesseval_regs(struct si_shader *shader,
 	si_pm4_set_reg(pm4, R_028B6C_VGT_TF_PARAM,
 		       S_028B6C_TYPE(type) |
 		       S_028B6C_PARTITIONING(partitioning) |
-		       S_028B6C_TOPOLOGY(topology));
+		       S_028B6C_TOPOLOGY(topology) |
+		       S_028B6C_DISTRIBUTION_MODE(sctx->b.chip_class >= VI ? 2 : 0));
 	si_pm4_set_reg(pm4, R_03093C_VGT_HS_OFFCHIP_PARAM,
 	               S_03093C_OFFCHIP_BUFFERING(0xFF) |
 	               S_03093C_OFFCHIP_GRANULARITY(V_03093C_X_8K_DWORDS));
@@ -360,7 +362,7 @@ static void si_shader_hs(struct si_shader *shader)
 		       S_00B42C_SCRATCH_EN(shader->config.scratch_bytes_per_wave > 0));
 }
 
-static void si_shader_es(struct si_shader *shader)
+static void si_shader_es(struct si_context *sctx, struct si_shader *shader)
 {
 	struct si_pm4_state *pm4;
 	unsigned num_user_sgprs;
@@ -399,7 +401,7 @@ static void si_shader_es(struct si_shader *shader)
 		       S_00B32C_SCRATCH_EN(shader->config.scratch_bytes_per_wave > 0));
 
 	if (shader->selector->type == PIPE_SHADER_TESS_EVAL)
-		si_set_tesseval_regs(shader, pm4);
+		si_set_tesseval_regs(sctx, shader, pm4);
 }
 
 /**
@@ -486,7 +488,8 @@ static void si_shader_gs(struct si_shader *shader)
  * If \p gs is non-NULL, it points to the geometry shader for which this shader
  * is the copy shader.
  */
-static void si_shader_vs(struct si_shader *shader, struct si_shader *gs)
+static void si_shader_vs(struct si_context *sctx, struct si_shader *shader,
+                         struct si_shader *gs)
 {
 	struct si_pm4_state *pm4;
 	unsigned num_user_sgprs;
@@ -577,7 +580,7 @@ static void si_shader_vs(struct si_shader *shader, struct si_shader *gs)
 			       S_028818_VPORT_Z_SCALE_ENA(1) | S_028818_VPORT_Z_OFFSET_ENA(1));
 
 	if (shader->selector->type == PIPE_SHADER_TESS_EVAL)
-		si_set_tesseval_regs(shader, pm4);
+		si_set_tesseval_regs(sctx, shader, pm4);
 }
 
 static unsigned si_get_ps_num_interp(struct si_shader *ps)
@@ -758,7 +761,8 @@ static void si_shader_ps(struct si_shader *shader)
 		shader->z_order = V_02880C_EARLY_Z_THEN_LATE_Z;
 }
 
-static void si_shader_init_pm4_state(struct si_shader *shader)
+static void si_shader_init_pm4_state(struct si_context *sctx,
+                                     struct si_shader *shader)
 {
 
 	if (shader->pm4)
@@ -769,22 +773,22 @@ static void si_shader_init_pm4_state(struct si_shader *shader)
 		if (shader->key.vs.as_ls)
 			si_shader_ls(shader);
 		else if (shader->key.vs.as_es)
-			si_shader_es(shader);
+			si_shader_es(sctx, shader);
 		else
-			si_shader_vs(shader, NULL);
+			si_shader_vs(sctx, shader, NULL);
 		break;
 	case PIPE_SHADER_TESS_CTRL:
 		si_shader_hs(shader);
 		break;
 	case PIPE_SHADER_TESS_EVAL:
 		if (shader->key.tes.as_es)
-			si_shader_es(shader);
+			si_shader_es(sctx, shader);
 		else
-			si_shader_vs(shader, NULL);
+			si_shader_vs(sctx, shader, NULL);
 		break;
 	case PIPE_SHADER_GEOMETRY:
 		si_shader_gs(shader);
-		si_shader_vs(shader->gs_copy_shader, shader);
+		si_shader_vs(sctx, shader->gs_copy_shader, shader);
 		break;
 	case PIPE_SHADER_FRAGMENT:
 		si_shader_ps(shader);
@@ -975,7 +979,7 @@ static int si_shader_select_with_key(struct pipe_context *ctx,
 		pipe_mutex_unlock(sel->mutex);
 		return r;
 	}
-	si_shader_init_pm4_state(shader);
+	si_shader_init_pm4_state(sctx, shader);
 
 	if (!sel->last_variant) {
 		sel->first_variant = shader;
@@ -1647,7 +1651,7 @@ static int si_update_scratch_buffer(struct si_context *sctx,
 		return r;
 
 	/* Update the shader state to use the new shader bo. */
-	si_shader_init_pm4_state(shader);
+	si_shader_init_pm4_state(sctx, shader);
 
 	r600_resource_reference(&shader->scratch_bo, sctx->scratch_buffer);
 

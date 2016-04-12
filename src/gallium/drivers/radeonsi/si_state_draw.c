@@ -227,10 +227,10 @@ static unsigned si_get_ia_multi_vgt_param(struct si_context *sctx,
 	unsigned max_primgroup_in_wave = 2;
 
 	/* SWITCH_ON_EOP(0) is always preferable. */
-	bool wd_switch_on_eop = false;
+	bool wd_switch_on_eop = true;
 	bool ia_switch_on_eop = false;
 	bool ia_switch_on_eoi = false;
-	bool partial_vs_wave = false;
+	bool partial_vs_wave = true;
 	bool partial_es_wave = false;
 
 	if (sctx->gs_shader.cso)

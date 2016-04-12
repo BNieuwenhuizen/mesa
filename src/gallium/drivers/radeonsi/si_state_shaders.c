@@ -301,6 +301,9 @@ static void si_set_tesseval_regs(struct si_shader *shader,
 		       S_028B6C_TYPE(type) |
 		       S_028B6C_PARTITIONING(partitioning) |
 		       S_028B6C_TOPOLOGY(topology));
+	si_pm4_set_reg(pm4, R_03093C_VGT_HS_OFFCHIP_PARAM,
+	               S_03093C_OFFCHIP_BUFFERING(0xFF) |
+	               S_03093C_OFFCHIP_GRANULARITY(V_03093C_X_8K_DWORDS));
 }
 
 static void si_shader_ls(struct si_shader *shader)
@@ -353,6 +356,7 @@ static void si_shader_hs(struct si_shader *shader)
 		       S_00B428_FLOAT_MODE(shader->config.float_mode));
 	si_pm4_set_reg(pm4, R_00B42C_SPI_SHADER_PGM_RSRC2_HS,
 		       S_00B42C_USER_SGPR(SI_TCS_NUM_USER_SGPR) |
+		       S_00B42C_OC_LDS_EN(1) |
 		       S_00B42C_SCRATCH_EN(shader->config.scratch_bytes_per_wave > 0));
 }
 
@@ -555,6 +559,7 @@ static void si_shader_vs(struct si_shader *shader, struct si_shader *gs)
 		       S_00B128_FLOAT_MODE(shader->config.float_mode));
 	si_pm4_set_reg(pm4, R_00B12C_SPI_SHADER_PGM_RSRC2_VS,
 		       S_00B12C_USER_SGPR(num_user_sgprs) |
+		       S_00B12C_OC_LDS_EN(1) |
 		       S_00B12C_SO_BASE0_EN(!!shader->selector->so.stride[0]) |
 		       S_00B12C_SO_BASE1_EN(!!shader->selector->so.stride[1]) |
 		       S_00B12C_SO_BASE2_EN(!!shader->selector->so.stride[2]) |
@@ -1794,6 +1799,10 @@ static void si_init_tess_factor_ring(struct si_context *sctx)
 
 	si_set_ring_buffer(&sctx->b.b, SI_HS_RING_TESS_FACTOR, sctx->tf_ring,
 			   0, sctx->tf_ring->width0, false, false, 0, 0, 0);
+
+	si_set_ring_buffer(&sctx->b.b, SI_HS_RING_TESS_OFFCHIP,
+			   sctx->tess_offchip_ring, 0,
+			   sctx->tess_offchip_ring->width0, false, false, 0, 0, 0);
 }
 
 /**
@@ -1843,6 +1852,8 @@ static void si_update_vgt_shader_config(struct si_context *sctx)
 		if (sctx->tes_shader.cso) {
 			stages |= S_028B54_LS_EN(V_028B54_LS_STAGE_ON) |
 				  S_028B54_HS_EN(1);
+			if (sctx->tcs_shader.cso && !sctx->gs_shader.cso)
+				stages |= S_028B54_DYNAMIC_HS(1);
 
 			if (sctx->gs_shader.cso)
 				stages |= S_028B54_ES_EN(V_028B54_ES_STAGE_DS) |

@@ -109,18 +109,8 @@ static void si_emit_derived_tess_state(struct si_context *sctx,
 	unsigned perpatch_output_offset, lds_size, ls_rsrc2;
 	unsigned tcs_in_layout, tcs_out_layout, tcs_out_offsets;
 
-	*num_patches = 1; /* TODO: calculate this */
 
-	if (sctx->last_ls == ls->current &&
-	    sctx->last_tcs == tcs &&
-	    sctx->last_tes_sh_base == tes_sh_base &&
-	    sctx->last_num_tcs_input_cp == num_tcs_input_cp)
-		return;
 
-	sctx->last_ls = ls->current;
-	sctx->last_tcs = tcs;
-	sctx->last_tes_sh_base = tes_sh_base;
-	sctx->last_num_tcs_input_cp = num_tcs_input_cp;
 
 	/* This calculates how shader inputs and outputs among VS, TCS, and TES
 	 * are laid out in LDS. */
@@ -145,8 +135,10 @@ static void si_emit_derived_tess_state(struct si_context *sctx,
 	pervertex_output_patch_size = num_tcs_output_cp * output_vertex_size;
 	output_patch_size = pervertex_output_patch_size + num_tcs_patch_outputs * 16;
 
-	output_patch0_offset = sctx->tcs_shader.cso ? input_patch_size * *num_patches : 0;
+	*num_patches = MIN2(MIN2(64 / num_tcs_input_cp, 64 / num_tcs_output_cp), 65536 / (input_patch_size + output_patch_size)); /* TODO: calculate this */
+	output_patch0_offset = (sctx->tcs_shader.cso || true) ? input_patch_size * *num_patches : 0;
 	perpatch_output_offset = output_patch0_offset + pervertex_output_patch_size;
+
 
 	lds_size = output_patch0_offset + output_patch_size * *num_patches;
 	ls_rsrc2 = ls->current->config.rsrc2;
@@ -158,6 +150,17 @@ static void si_emit_derived_tess_state(struct si_context *sctx,
 		assert(lds_size <= 32768);
 		ls_rsrc2 |= S_00B52C_LDS_SIZE(align(lds_size, 256) / 256);
 	}
+
+	if (sctx->last_ls == ls->current &&
+	    sctx->last_tcs == tcs &&
+	    sctx->last_tes_sh_base == tes_sh_base &&
+	    sctx->last_num_tcs_input_cp == num_tcs_input_cp)
+		return;
+
+	sctx->last_ls = ls->current;
+	sctx->last_tcs = tcs;
+	sctx->last_tes_sh_base = tes_sh_base;
+	sctx->last_num_tcs_input_cp = num_tcs_input_cp;
 
 	/* Due to a hw bug, RSRC2_LS must be written twice with another
 	 * LS register written in between. */

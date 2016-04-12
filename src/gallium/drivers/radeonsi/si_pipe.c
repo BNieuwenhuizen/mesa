@@ -48,6 +48,7 @@ static void si_destroy_context(struct pipe_context *context)
 	pipe_resource_reference(&sctx->esgs_ring, NULL);
 	pipe_resource_reference(&sctx->gsvs_ring, NULL);
 	pipe_resource_reference(&sctx->tf_ring, NULL);
+	pipe_resource_reference(&sctx->tess_offchip_ring, NULL);
 	pipe_resource_reference(&sctx->null_const_buf.buffer, NULL);
 	r600_resource_reference(&sctx->border_color_buffer, NULL);
 	free(sctx->border_color_table);
@@ -187,6 +188,10 @@ static struct pipe_context *si_create_context(struct pipe_screen *screen,
 			       NULL, PIPE_TRANSFER_WRITE);
 	if (!sctx->border_color_map)
 		goto fail;
+
+	sctx->tess_offchip_ring = pipe_buffer_create(screen, PIPE_BIND_CUSTOM,
+	                                             PIPE_USAGE_DEFAULT,
+	                                             8 * 1024 * 1024);
 
 	si_init_all_descriptors(sctx);
 	si_init_state_functions(sctx);

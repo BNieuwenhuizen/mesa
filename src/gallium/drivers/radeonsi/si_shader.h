@@ -163,7 +163,7 @@ enum {
 	 *   [13:20] = stride between vertices in dwords = num_inputs * 4, max = 32*4
 	 */
 	SI_PARAM_TCS_IN_LAYOUT,	 /* TCS only */
-	SI_PARAM_LS_OUT_LAYOUT,	 /* same value as TCS_IN_LAYOUT, LS only */
+	SI_PARAM_LS_OUT_LAYOUT = SI_PARAM_START_INSTANCE + 1,	 /* same value as TCS_IN_LAYOUT, LS only */
 
 	/* TCS only parameters. */
 	SI_PARAM_TCS_OC_LDS = SI_PARAM_TCS_IN_LAYOUT + 1,

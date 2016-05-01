@@ -109,6 +109,7 @@ enum {
 	/* both TCS and TES */
 	SI_SGPR_TCS_OUT_OFFSETS	= SI_NUM_RESOURCE_SGPRS,
 	SI_SGPR_TCS_OUT_LAYOUT,
+	SI_SGPR_TCS_OUT_LAYOUT2,
 	SI_TES_NUM_USER_SGPR,
 
 	/* TCS only */
@@ -157,6 +158,7 @@ enum {
 	 *   [26:31] = gl_PatchVerticesIn, max = 32
 	 */
 	SI_PARAM_TCS_OUT_LAYOUT, /* for TCS & TES */
+	SI_PARAM_TCS_OUT_LAYOUT2,
 
 	/* Layout of LS outputs / TCS inputs
 	 *   [0:12] = stride between patches in dwords = num_inputs * num_vertices * 4, max = 32*32*4

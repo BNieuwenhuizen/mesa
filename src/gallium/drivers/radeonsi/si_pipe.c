@@ -241,9 +241,9 @@ static struct pipe_context *si_create_context(struct pipe_screen *screen,
 					   r600_get_llvm_processor_name(sscreen->b.family),
 #if HAVE_LLVM >= 0x0308
 					   sscreen->b.debug_flags & DBG_SI_SCHED ?
-					   	"+DumpCode,+vgpr-spilling,+si-scheduler" :
+					   	"+DumpCode,+vgpr-spilling,+si-scheduler,+load-store-opt" :
 #endif
-					   	"+DumpCode,+vgpr-spilling",
+					   	"+DumpCode,+vgpr-spilling,+load-store-opt",
 					   LLVMCodeGenLevelDefault,
 					   LLVMRelocDefault,
 					   LLVMCodeModelDefault);

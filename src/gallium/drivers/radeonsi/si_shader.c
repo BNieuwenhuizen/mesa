@@ -2583,12 +2583,17 @@ static void si_write_tess_factors(struct lp_build_tgsi_context *bld_base,
 	byteoffset = LLVMBuildMul(gallivm->builder, rel_patch_id,
 				  lp_build_const_int32(gallivm, 4 * stride), "");
 
-	/* Store the outputs. */
+	/* Store the dynamic HS control word. */
+	build_tbuffer_store_dwords(ctx, buffer,
+	                           lp_build_const_int32(gallivm, 0x80000000),
+	                           1, lp_build_const_int32(gallivm, 0), tf_base, 0);
+
+	/* Store the tessellation factors. */
 	build_tbuffer_store_dwords(ctx, buffer, vec0,
-				   MIN2(stride, 4), byteoffset, tf_base, 0);
+				   MIN2(stride, 4), byteoffset, tf_base, 4);
 	if (vec1)
 		build_tbuffer_store_dwords(ctx, buffer, vec1,
-					   stride - 4, byteoffset, tf_base, 16);
+					   stride - 4, byteoffset, tf_base, 20);
 	lp_build_endif(&if_ctx);
 }
 

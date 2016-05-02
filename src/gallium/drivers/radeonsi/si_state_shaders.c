@@ -1777,6 +1777,15 @@ static void si_init_tess_factor_ring(struct si_context *sctx)
 
 	assert(((sctx->tf_ring->width0 / 4) & C_030938_SIZE) == 0);
 
+	/* The size is derived from 256 blocks of 8192 dwords each, as set in
+	 * R_03093C_VGT_HS_OFFCHIP_PARAM. */
+	sctx->tess_offchip_ring = pipe_buffer_create(sctx->b.b.screen,
+	                                             PIPE_BIND_CUSTOM,
+	                                             PIPE_USAGE_DEFAULT,
+	                                             8 * 1024 * 1024);
+	if (!sctx->tess_offchip_ring)
+		return;
+
 	si_init_config_add_vgt_flush(sctx);
 
 	/* Append these registers to the init config state. */
@@ -1792,6 +1801,10 @@ static void si_init_tess_factor_ring(struct si_context *sctx)
 			       r600_resource(sctx->tf_ring)->gpu_address >> 8);
 	}
 
+	si_pm4_set_reg(sctx->init_config, R_03093C_VGT_HS_OFFCHIP_PARAM,
+	               S_03093C_OFFCHIP_BUFFERING(0xFF) |
+	               S_03093C_OFFCHIP_GRANULARITY(V_03093C_X_8K_DWORDS));
+
 	/* Flush the context to re-emit the init_config state.
 	 * This is done only once in a lifetime of a context.
 	 */
@@ -1801,6 +1814,10 @@ static void si_init_tess_factor_ring(struct si_context *sctx)
 
 	si_set_ring_buffer(&sctx->b.b, SI_HS_RING_TESS_FACTOR, sctx->tf_ring,
 			   0, sctx->tf_ring->width0, false, false, 0, 0, 0);
+
+	si_set_ring_buffer(&sctx->b.b, SI_HS_RING_TESS_OFFCHIP,
+	                   sctx->tess_offchip_ring, 0,
+	                   sctx->tess_offchip_ring->width0, false, false, 0, 0, 0);
 }
 
 /**

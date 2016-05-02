@@ -91,6 +91,8 @@ struct si_shader_context
 	int param_tes_rel_patch_id;
 	int param_tes_patch_id;
 	int param_es2gs_offset;
+	int param_oc_lds;
+	int param_tess_offchip;
 
 	LLVMTargetMachineRef tm;
 
@@ -4896,7 +4898,11 @@ static void declare_streamout_params(struct si_shader_context *ctx,
 
 	/* Streamout SGPRs. */
 	if (so->num_outputs) {
-		params[ctx->param_streamout_config = (*num_params)++] = i32;
+		if (ctx->type != PIPE_SHADER_TESS_EVAL)
+			params[ctx->param_streamout_config = (*num_params)++] = i32;
+		else
+			ctx->param_streamout_config = ctx->param_tess_offchip;
+
 		params[ctx->param_streamout_write_index = (*num_params)++] = i32;
 	}
 	/* A streamout buffer offset is loaded if the stride is non-zero. */
@@ -5022,6 +5028,7 @@ static void create_function(struct si_shader_context *ctx)
 		params[SI_PARAM_TCS_OUT_OFFSETS] = ctx->i32;
 		params[SI_PARAM_TCS_OUT_LAYOUT] = ctx->i32;
 		params[SI_PARAM_TCS_IN_LAYOUT] = ctx->i32;
+		params[ctx->param_oc_lds = SI_PARAM_TCS_OC_LDS] = ctx->i32;
 		params[SI_PARAM_TESS_FACTOR_OFFSET] = ctx->i32;
 		last_sgpr = SI_PARAM_TESS_FACTOR_OFFSET;
 
@@ -5046,10 +5053,14 @@ static void create_function(struct si_shader_context *ctx)
 		num_params = SI_PARAM_TCS_OUT_LAYOUT+1;
 
 		if (shader->key.tes.as_es) {
+			params[ctx->param_oc_lds = num_params++] = ctx->i32;
+			params[ctx->param_tess_offchip = num_params++] = ctx->i32;
 			params[ctx->param_es2gs_offset = num_params++] = ctx->i32;
 		} else {
+			params[ctx->param_tess_offchip = num_params++] = ctx->i32;
 			declare_streamout_params(ctx, &shader->selector->so,
 						 params, ctx->i32, &num_params);
+			params[ctx->param_oc_lds = num_params++] = ctx->i32;
 		}
 		last_sgpr = num_params - 1;
 
@@ -6593,6 +6604,7 @@ static bool si_compile_tcs_epilog(struct si_screen *sscreen,
 	params[SI_PARAM_TCS_OUT_OFFSETS] = ctx.i32;
 	params[SI_PARAM_TCS_OUT_LAYOUT] = ctx.i32;
 	params[SI_PARAM_TCS_IN_LAYOUT] = ctx.i32;
+	params[ctx.param_oc_lds = SI_PARAM_TCS_OC_LDS] = ctx.i32;
 	params[SI_PARAM_TESS_FACTOR_OFFSET] = ctx.i32;
 	last_sgpr = SI_PARAM_TESS_FACTOR_OFFSET;
 	num_params = last_sgpr + 1;

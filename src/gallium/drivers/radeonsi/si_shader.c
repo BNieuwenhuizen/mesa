@@ -903,7 +903,10 @@ static LLVMValueRef fetch_input_tes(
 	enum tgsi_opcode_type type, unsigned swizzle)
 {
 	struct si_shader_context *ctx = si_shader_context(bld_base);
+	struct gallivm_state *gallivm = bld_base->base.gallivm;
+
 	LLVMValueRef dw_addr, stride;
+	LLVMValueRef rw_buffers, buffer, offset, byteoffset;
 
 	if (reg->Register.Dimension) {
 		stride = unpack_param(ctx, SI_PARAM_TCS_OUT_LAYOUT, 13, 8);
@@ -914,7 +917,18 @@ static LLVMValueRef fetch_input_tes(
 		dw_addr = get_dw_address(ctx, NULL, reg, NULL, dw_addr);
 	}
 
-	return lds_load(bld_base, type, swizzle, dw_addr);
+
+	rw_buffers = LLVMGetParam(ctx->radeon_bld.main_fn,
+				  SI_PARAM_RW_BUFFERS);
+	buffer = build_indexed_load_const(ctx, rw_buffers,
+			lp_build_const_int32(gallivm, SI_HS_RING_TESS_OFFCHIP));
+
+	/* Get the offset. */
+	offset = LLVMGetParam(ctx->radeon_bld.main_fn, ctx->param_oc_lds);
+	byteoffset = LLVMBuildMul(gallivm->builder, dw_addr,
+				  lp_build_const_int32(gallivm, 4), "");
+
+	return buffer_load(bld_base, type, swizzle, buffer, offset, byteoffset);
 }
 
 static void store_output_tcs(struct lp_build_tgsi_context *bld_base,
@@ -923,9 +937,12 @@ static void store_output_tcs(struct lp_build_tgsi_context *bld_base,
 			     LLVMValueRef dst[4])
 {
 	struct si_shader_context *ctx = si_shader_context(bld_base);
+	struct gallivm_state *gallivm = bld_base->base.gallivm;
 	const struct tgsi_full_dst_register *reg = &inst->Dst[0];
 	unsigned chan_index;
 	LLVMValueRef dw_addr, stride;
+	LLVMValueRef rw_buffers, buffer, base, byteoffset;
+	LLVMValueRef values[4];
 
 	/* Only handle per-patch and per-vertex outputs here.
 	 * Vectors will be lowered to scalars and this function will be called again.
@@ -945,6 +962,17 @@ static void store_output_tcs(struct lp_build_tgsi_context *bld_base,
 		dw_addr = get_dw_address(ctx, reg, NULL, NULL, dw_addr);
 	}
 
+	rw_buffers = LLVMGetParam(ctx->radeon_bld.main_fn,
+				  SI_PARAM_RW_BUFFERS);
+	buffer = build_indexed_load_const(ctx, rw_buffers,
+			lp_build_const_int32(gallivm, SI_HS_RING_TESS_OFFCHIP));
+
+	/* Get the offset. */
+	base = LLVMGetParam(ctx->radeon_bld.main_fn, ctx->param_oc_lds);
+	byteoffset = LLVMBuildMul(gallivm->builder, dw_addr,
+				  lp_build_const_int32(gallivm, 4), "");
+
+
 	TGSI_FOR_EACH_DST0_ENABLED_CHANNEL(inst, chan_index) {
 		LLVMValueRef value = dst[chan_index];
 
@@ -952,6 +980,20 @@ static void store_output_tcs(struct lp_build_tgsi_context *bld_base,
 			value = radeon_llvm_saturate(bld_base, value);
 
 		lds_store(bld_base, chan_index, dw_addr, value);
+		value = LLVMBuildBitCast(gallivm->builder, value, ctx->i32, "");
+		values[chan_index] = value;
+		if (inst->Dst[0].Register.WriteMask != 0xF) {
+			build_tbuffer_store_dwords(ctx, buffer, value, 1,
+			                           byteoffset, base,
+			                           4 * chan_index);
+		}
+	}
+
+	if (inst->Dst[0].Register.WriteMask == 0xF) {
+		LLVMValueRef value = lp_build_gather_values(bld_base->base.gallivm,
+		                                            values, 4);
+		build_tbuffer_store_dwords(ctx, buffer, value, 4, byteoffset,
+		                           base, 0);
 	}
 }
 

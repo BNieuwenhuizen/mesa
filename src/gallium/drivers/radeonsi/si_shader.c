@@ -2499,6 +2499,19 @@ static void si_copy_tcs_inputs(struct lp_build_tgsi_context *bld_base)
 	}
 }
 
+static void si_llvm_emit_barrier(const struct lp_build_tgsi_action *action,
+				 struct lp_build_tgsi_context *bld_base,
+				 struct lp_build_emit_data *emit_data)
+{
+	struct si_shader_context *ctx = si_shader_context(bld_base);
+	struct gallivm_state *gallivm = bld_base->base.gallivm;
+
+	lp_build_intrinsic(gallivm->builder,
+			   HAVE_LLVM >= 0x0309 ? "llvm.amdgcn.s.barrier"
+					       : "llvm.AMDGPU.barrier.local",
+			   ctx->voidt, NULL, 0, LLVMNoUnwindAttribute);
+}
+
 static void si_write_tess_factors(struct lp_build_tgsi_context *bld_base,
 				  LLVMValueRef rel_patch_id,
 				  LLVMValueRef invocation_id,
@@ -2512,6 +2525,8 @@ static void si_write_tess_factors(struct lp_build_tgsi_context *bld_base,
 	LLVMValueRef out[6], vec0, vec1, rw_buffers, tf_base;
 	unsigned stride, outer_comps, inner_comps, i;
 	struct lp_build_if_state if_ctx;
+
+	si_llvm_emit_barrier(NULL, bld_base, NULL);
 
 	/* Do this only for invocation 0, because the tess levels are per-patch,
 	 * not per-vertex.
@@ -3197,18 +3212,6 @@ static void build_int_type_name(
 static void build_tex_intrinsic(const struct lp_build_tgsi_action *action,
 				struct lp_build_tgsi_context *bld_base,
 				struct lp_build_emit_data *emit_data);
-
-/* Prevent optimizations (at least of memory accesses) across the current
- * point in the program by emitting empty inline assembly that is marked as
- * having side effects.
- */
-static void emit_optimization_barrier(struct si_shader_context *ctx)
-{
-	LLVMBuilderRef builder = ctx->radeon_bld.gallivm.builder;
-	LLVMTypeRef ftype = LLVMFunctionType(ctx->voidt, NULL, 0, false);
-	LLVMValueRef inlineasm = LLVMConstInlineAsm(ftype, "", "", true, false);
-	LLVMBuildCall(builder, inlineasm, NULL, 0, "");
-}
 
 static void emit_waitcnt(struct si_shader_context *ctx)
 {
@@ -5137,27 +5140,6 @@ static void si_llvm_emit_primitive(
 	args[1] = LLVMGetParam(ctx->radeon_bld.main_fn, SI_PARAM_GS_WAVE_ID);
 	lp_build_intrinsic(gallivm->builder, "llvm.SI.sendmsg",
 			   ctx->voidt, args, 2, LLVMNoUnwindAttribute);
-}
-
-static void si_llvm_emit_barrier(const struct lp_build_tgsi_action *action,
-				 struct lp_build_tgsi_context *bld_base,
-				 struct lp_build_emit_data *emit_data)
-{
-	struct si_shader_context *ctx = si_shader_context(bld_base);
-	struct gallivm_state *gallivm = bld_base->base.gallivm;
-
-	/* The real barrier instruction isn’t needed, because an entire patch
-	 * always fits into a single wave.
-	 */
-	if (ctx->type == PIPE_SHADER_TESS_CTRL) {
-		emit_optimization_barrier(ctx);
-		return;
-	}
-
-	lp_build_intrinsic(gallivm->builder,
-			   HAVE_LLVM >= 0x0309 ? "llvm.amdgcn.s.barrier"
-					       : "llvm.AMDGPU.barrier.local",
-			   ctx->voidt, NULL, 0, LLVMNoUnwindAttribute);
 }
 
 static const struct lp_build_tgsi_action tex_action = {

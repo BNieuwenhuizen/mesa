@@ -28,6 +28,7 @@
 #include "si_shader.h"
 #include "sid.h"
 #include "radeon/r600_cs.h"
+#include "radeon/r600_query.h"
 
 #include "util/u_dual_blend.h"
 #include "util/u_format.h"
@@ -1056,6 +1057,27 @@ static void si_set_occlusion_query_state(struct pipe_context *ctx, bool enable)
 	struct si_context *sctx = (struct si_context*)ctx;
 
 	si_mark_atom_dirty(sctx, &sctx->db_render_state);
+}
+
+static void si_save_qbo_state(struct pipe_context *ctx, struct r600_qbo_state *st)
+{
+	struct si_context *sctx = (struct si_context*)ctx;
+	st->saved_vs = sctx->vs_shader.cso;
+	st->saved_tcs = sctx->tcs_shader.cso;
+	st->saved_tes = sctx->tes_shader.cso;
+	st->saved_gs = sctx->gs_shader.cso;
+	st->saved_rs_state = sctx->queued.named.rasterizer;
+	st->saved_vertex_elements = sctx->vertex_elements;
+	st->num_saved_so_targets = sctx->b.streamout.num_targets;
+	for (int i = 0; i < st->num_saved_so_targets; ++i) {
+		pipe_so_target_reference(&st->saved_so_targets[i],
+		                    (struct pipe_stream_output_target*)
+		                                  sctx->b.streamout.targets[i]);
+	}
+	for (int i = 0; i < 4; ++i) {
+		pipe_resource_reference(&st->saved_vertex_buffers[i].buffer, sctx->vertex_buffer[i].buffer);
+		st->saved_vertex_buffers[i] = sctx->vertex_buffer[i];
+	}
 }
 
 static void si_emit_db_render_state(struct si_context *sctx, struct r600_atom *state)
@@ -3458,6 +3480,7 @@ void si_init_state_functions(struct si_context *sctx)
 
 	sctx->b.b.set_active_query_state = si_set_active_query_state;
 	sctx->b.set_occlusion_query_state = si_set_occlusion_query_state;
+	sctx->b.save_qbo_state = si_save_qbo_state;
 	sctx->b.need_gfx_cs_space = si_need_gfx_cs_space;
 
 	sctx->b.b.draw_vbo = si_draw_vbo;

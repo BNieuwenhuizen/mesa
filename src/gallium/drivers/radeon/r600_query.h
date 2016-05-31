@@ -29,10 +29,12 @@
 #define R600_QUERY_H
 
 #include "pipe/p_defines.h"
+#include "pipe/p_state.h"
 #include "util/list.h"
 
 struct pipe_context;
 struct pipe_query;
+struct pipe_resource;
 
 struct r600_common_context;
 struct r600_common_screen;
@@ -81,6 +83,12 @@ struct r600_query_ops {
 	bool (*get_result)(struct r600_common_context *,
 			   struct r600_query *, bool wait,
 			   union pipe_query_result *result);
+	void (*get_result_resource)(struct r600_common_context *,
+				    struct r600_query *, bool wait,
+				    enum pipe_query_value_type result_type,
+				    int index,
+				    struct pipe_resource *resource,
+				    unsigned offset);
 };
 
 struct r600_query {
@@ -260,5 +268,16 @@ void r600_perfcounters_add_block(struct r600_common_screen *,
 void r600_perfcounters_do_destroy(struct r600_perfcounters *);
 void r600_query_hw_reset_buffers(struct r600_common_context *rctx,
 				 struct r600_query_hw *query);
+
+struct r600_qbo_state {
+	void *saved_vs, *saved_tcs, *saved_tes, *saved_gs;
+	void *saved_rs_state;
+	void *saved_vertex_elements;
+	struct pipe_vertex_buffer saved_vertex_buffers[4];
+
+	unsigned num_saved_so_targets;
+	struct pipe_stream_output_target *saved_so_targets[PIPE_MAX_SO_BUFFERS];
+};
+
 
 #endif /* R600_QUERY_H */

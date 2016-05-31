@@ -25,7 +25,10 @@
 #include "r600_query.h"
 #include "r600_cs.h"
 #include "util/u_memory.h"
+#include "util/u_upload_mgr.h"
 
+#include "tgsi/tgsi_ureg.h"
+#include "tgsi/tgsi_dump.h"
 /* Queries without buffer handling or suspend/resume. */
 struct r600_query_sw {
 	struct r600_query b;
@@ -247,11 +250,13 @@ static bool r600_query_sw_get_result(struct r600_common_context *rctx,
 	return true;
 }
 
+
 static struct r600_query_ops sw_query_ops = {
 	.destroy = r600_query_sw_destroy,
 	.begin = r600_query_sw_begin,
 	.end = r600_query_sw_end,
-	.get_result = r600_query_sw_get_result
+	.get_result = r600_query_sw_get_result,
+	.get_result_resource = NULL
 };
 
 static struct pipe_query *r600_query_sw_create(struct pipe_context *ctx,
@@ -347,11 +352,20 @@ static bool r600_query_hw_prepare_buffer(struct r600_common_context *ctx,
 	return true;
 }
 
+static void r600_query_hw_get_result_resource(struct r600_common_context *rctx,
+                                              struct r600_query *rquery,
+                                              boolean wait,
+                                              enum pipe_query_value_type result_type,
+                                              int index,
+                                              struct pipe_resource *resource,
+                                              unsigned offset);
+
 static struct r600_query_ops query_hw_ops = {
 	.destroy = r600_query_hw_destroy,
 	.begin = r600_query_hw_begin,
 	.end = r600_query_hw_end,
 	.get_result = r600_query_hw_get_result,
+	.get_result_resource = r600_query_hw_get_result_resource,
 };
 
 static void r600_query_hw_do_emit_start(struct r600_common_context *ctx,
@@ -955,6 +969,21 @@ static boolean r600_get_query_result(struct pipe_context *ctx,
 	return rquery->ops->get_result(rctx, rquery, wait, result);
 }
 
+static void r600_get_query_result_resource(struct pipe_context *ctx,
+                                           struct pipe_query *query,
+                                           boolean wait,
+                                           enum pipe_query_value_type result_type,
+                                           int index,
+                                           struct pipe_resource *resource,
+                                           unsigned offset)
+{
+	struct r600_common_context *rctx = (struct r600_common_context *)ctx;
+	struct r600_query *rquery = (struct r600_query *)query;
+
+	rquery->ops->get_result_resource(rctx, rquery, wait, result_type, index,
+	                                 resource, offset);
+}
+
 static void r600_query_hw_clear_result(struct r600_query_hw *query,
 				       union pipe_query_result *result)
 {
@@ -993,6 +1022,251 @@ bool r600_query_hw_get_result(struct r600_common_context *rctx,
 		result->u64 = (1000000 * result->u64) / rctx->screen->info.clock_crystal_freq;
 	}
 	return true;
+}
+
+static void r600_generate_add_result_shader(struct r600_common_context *rctx)
+{
+	struct ureg_src old_result, start_value, end_value, config;
+	struct ureg_dst new_result, acc, acc2, cond;
+	struct ureg_program *ureg = ureg_create(PIPE_SHADER_VERTEX);
+	struct pipe_stream_output_info so_info = {0};
+	unsigned label, label2;
+	if (!ureg)
+		return;
+
+	old_result = ureg_DECL_vs_input(ureg, 0);
+	start_value = ureg_DECL_vs_input(ureg, 1);
+	end_value = ureg_DECL_vs_input(ureg, 2);
+	config = ureg_DECL_vs_input(ureg, 3);
+	new_result = ureg_DECL_output(ureg, TGSI_SEMANTIC_GENERIC, 0);
+
+	acc = ureg_DECL_local_temporary(ureg);
+	acc2 = ureg_DECL_local_temporary(ureg);
+	cond = ureg_DECL_local_temporary(ureg);
+
+	/* hand coded 64-bit acc = old_result + end_value */
+	ureg_UADD(ureg, ureg_writemask(acc, 3), old_result, end_value);
+	ureg_USLT(ureg, ureg_writemask(cond, 1), ureg_src(acc), old_result);
+	ureg_UIF(ureg, ureg_swizzle(ureg_src(cond), 0, 0, 0, 0), &label);
+	ureg_UADD(ureg, ureg_writemask(acc, 2), ureg_src(acc), ureg_imm1u(ureg, 1));
+	ureg_fixup_label(ureg, label, ureg_get_instruction_number(ureg));
+	ureg_ENDIF(ureg);
+
+	/* hand coded 64-bit acc2 = acc - start_value */
+	ureg_NOT(ureg, ureg_writemask(acc2, 3), start_value);
+	ureg_UADD(ureg, ureg_writemask(acc2, 3), ureg_src(acc), ureg_src(acc2));
+	ureg_UADD(ureg, ureg_writemask(acc2, 1), ureg_src(acc2), ureg_imm1u(ureg, 1));
+
+	ureg_USLT(ureg, ureg_writemask(cond, 1), ureg_src(acc), ureg_src(acc2));
+	ureg_UIF(ureg, ureg_swizzle(ureg_src(cond), 0, 0, 0, 0), &label);
+	ureg_UADD(ureg, ureg_writemask(acc2, 2), ureg_src(acc2),
+	          ureg_imm1u(ureg, 0xFFFFFFFFU));
+	ureg_fixup_label(ureg, label, ureg_get_instruction_number(ureg));
+	ureg_ENDIF(ureg);
+
+	ureg_AND(ureg, cond, config, ureg_imm1u(ureg, 1024));
+	ureg_UIF(ureg, ureg_swizzle(ureg_src(cond), 0, 0, 0, 0), &label);
+	ureg_OR(ureg, acc2, ureg_src(acc2), ureg_swizzle(ureg_src(acc2), 1, 0, 0, 0));
+	ureg_UMIN(ureg, acc2, ureg_src(acc2), ureg_imm1u(ureg, 1));
+	ureg_fixup_label(ureg, label, ureg_get_instruction_number(ureg));
+	ureg_ENDIF(ureg);
+
+	assert(PIPE_QUERY_TYPE_I64 == 2);
+	assert(PIPE_QUERY_TYPE_U64 == 3);
+
+	ureg_AND(ureg, cond, config, ureg_imm1u(ureg, 1));
+	ureg_CMP(ureg, acc, ureg_src(cond), ureg_imm1u(ureg, 0xffffffffu), ureg_imm1u(ureg, 0x7fffffffu));
+
+	ureg_AND(ureg, cond, config, ureg_imm1u(ureg, 2));
+	ureg_UIF(ureg, ureg_swizzle(ureg_src(cond), 0, 0, 0, 0), &label);
+
+	ureg_USLT(ureg, cond, ureg_swizzle(ureg_src(acc), 1, 1, 1, 1), ureg_swizzle(ureg_src(acc2), 1, 1, 1, 1));
+	ureg_CMP(ureg, cond, ureg_src(cond), ureg_imm1u(ureg, 0xffffffffu), ureg_imm1u(ureg, 0x0));
+	ureg_UMIN(ureg, ureg_writemask(acc2, 2), ureg_src(acc2), ureg_swizzle(ureg_src(acc), 0, 0, 0, 0));
+	ureg_UMAX(ureg, ureg_writemask(acc2, 1), ureg_src(acc2), ureg_src(cond));
+
+	ureg_fixup_label(ureg, label, ureg_get_instruction_number(ureg));
+	ureg_ELSE(ureg, &label);
+
+	ureg_CMP(ureg, cond, ureg_src(acc2), ureg_imm1u(ureg, 0xffffffffu), ureg_imm1u(ureg, 0x0));
+	ureg_UMAX(ureg, ureg_writemask(acc2, 1), ureg_src(acc2), ureg_src(cond));
+	ureg_UMIN(ureg, acc2, ureg_src(acc2), ureg_src(acc));
+
+	ureg_fixup_label(ureg, label, ureg_get_instruction_number(ureg));
+	ureg_ENDIF(ureg);
+
+	ureg_MOV(ureg, new_result, ureg_src(acc2));
+
+	ureg_END(ureg);
+
+	so_info.num_outputs = 1;
+	so_info.stride[0] = 2;
+	so_info.output[0].num_components = 2;
+
+	rctx->add_result_shader = ureg_create_shader_with_so_and_destroy(ureg, &rctx->b, &so_info);
+}
+
+
+static void r600_query_restore_qbo_state(struct r600_common_context *rctx,
+                                         struct r600_qbo_state *st)
+{
+	rctx->b.bind_vs_state(&rctx->b, st->saved_vs);
+	rctx->b.bind_tcs_state(&rctx->b, st->saved_tcs);
+	rctx->b.bind_tes_state(&rctx->b, st->saved_tes);
+	rctx->b.bind_gs_state(&rctx->b, st->saved_gs);
+	rctx->b.bind_rasterizer_state(&rctx->b, st->saved_rs_state);
+	rctx->b.bind_vertex_elements_state(&rctx->b, st->saved_vertex_elements);
+
+	unsigned offsets[PIPE_MAX_SO_BUFFERS];
+	for (int i = 0; i < st->num_saved_so_targets; i++)
+		offsets[i] = (unsigned)-1;
+	rctx->b.set_stream_output_targets(&rctx->b, st->num_saved_so_targets,
+	                                  st->saved_so_targets, offsets);
+
+	for (int i = 0; i < st->num_saved_so_targets; ++i) {
+		pipe_so_target_reference(&st->saved_so_targets[i], NULL);
+	}
+
+	rctx->b.set_vertex_buffers(&rctx->b, 0, 4, st->saved_vertex_buffers);
+	for (int i = 0; i < 4; ++i) {
+		pipe_resource_reference(&st->saved_vertex_buffers[i].buffer, NULL);
+	}
+}
+
+static void r600_query_get_params(struct r600_query *rquery,
+                                  int index,
+                                  unsigned *start_offset,
+                                  unsigned *end_offset,
+                                  unsigned *result_size)
+{
+	switch (rquery->type) {
+		case PIPE_QUERY_OCCLUSION_COUNTER:
+		case PIPE_QUERY_OCCLUSION_PREDICATE:
+			*start_offset = 0;
+			*end_offset = 8;
+			*result_size = 16;
+			break;
+		case PIPE_QUERY_PRIMITIVES_EMITTED:
+			*start_offset = 8;
+			*end_offset = 24;
+			break;
+		case PIPE_QUERY_PRIMITIVES_GENERATED:
+			*start_offset = 0;
+			*end_offset = 16;
+			break;
+		case PIPE_QUERY_SO_STATISTICS:
+			*start_offset = 8 - index * 8;
+			*end_offset = 24 - index * 8;
+			break;
+		case PIPE_QUERY_PIPELINE_STATISTICS:
+		{
+			static unsigned offsets[] = {56, 48, 24, 32, 40, 16, 8, 0, 64, 72, 80};
+			*start_offset = offsets[index];
+			*end_offset = 88 + offsets[index];
+			break;
+		}
+	}
+}
+
+static void r600_query_hw_get_result_resource(struct r600_common_context *rctx,
+                                              struct r600_query *rquery,
+                                              boolean wait,
+                                              enum pipe_query_value_type result_type,
+                                              int index,
+                                              struct pipe_resource *resource,
+                                              unsigned offset)
+{
+	struct r600_query_hw *query = (struct r600_query_hw *)rquery;
+	struct r600_query_buffer *qbuf;
+	unsigned result_count = 0;
+	unsigned result_index = 0;
+	unsigned result_size = query->result_size;
+	unsigned util_buffer_size, util_buffer_offset;
+	void *util_buffer_data;
+	struct pipe_resource *util_buffer = NULL;
+	struct r600_qbo_state saved_state = {0};
+	struct pipe_draw_info draw_info = {0};
+	struct pipe_stream_output_target *so_target = NULL;
+	struct pipe_vertex_element ve[4] = {
+		{0, 0, 0, PIPE_FORMAT_R32G32_UINT},
+		{0, 0, 1, PIPE_FORMAT_R32G32_UINT},
+		{8, 0, 1, PIPE_FORMAT_R32G32_UINT},
+		{0, 0, 2, PIPE_FORMAT_R32_UINT}
+	};
+	void* ve_state= NULL;
+
+	unsigned so_offset = 0;
+
+	if (index == -1) {
+		if (result_type == PIPE_QUERY_TYPE_I64 ||
+		    result_type == PIPE_QUERY_TYPE_U64) {
+			uint64_t v = 1;
+			rctx->b.clear_buffer(&rctx->b, resource, offset, 8, &v, 8);
+		} else {
+			uint32_t v = 1;
+			rctx->b.clear_buffer(&rctx->b, resource, offset, 4, &v, 4);
+		}
+		return;
+	}
+	if (!rctx->add_result_shader)
+		r600_generate_add_result_shader(rctx);
+
+	rctx->save_qbo_state(&rctx->b, &saved_state);
+
+	rctx->b.bind_vs_state(&rctx->b, rctx->add_result_shader);
+	rctx->b.bind_tcs_state(&rctx->b, NULL);
+	rctx->b.bind_tes_state(&rctx->b, NULL);
+	rctx->b.bind_gs_state(&rctx->b, NULL);
+
+	r600_query_get_params(rquery, index, &ve[1].src_offset, &ve[2].src_offset, &result_size);
+	ve_state = rctx->b.create_vertex_elements_state(&rctx->b, 4, ve);
+
+	for (qbuf = &query->buffer; qbuf; qbuf = qbuf->previous) {
+		result_count += qbuf->results_end / result_size;
+	}
+	printf("result_count %d\n", result_count);
+	util_buffer_size = 16 + 8 * result_count;
+	u_upload_alloc(rctx->uploader, 0, util_buffer_size, 256,
+	               &util_buffer_offset, &util_buffer, &util_buffer_data);
+	memset(util_buffer_data, 0, 24);
+	unsigned config[2] = {PIPE_QUERY_TYPE_U64, result_type};
+	if (rquery->type == PIPE_QUERY_OCCLUSION_PREDICATE)
+		config[1] |= 1024;
+	memcpy(util_buffer_data,&config, 8);
+	for (qbuf = &query->buffer; qbuf; qbuf = qbuf->previous) {
+		unsigned results_base = 0;
+
+		while (results_base != qbuf->results_end) {
+			struct pipe_vertex_buffer vertex_buffers[3] = {
+				{0, util_buffer_offset + 16 + 8 * result_index, util_buffer, NULL},
+				{0, results_base, (struct pipe_resource*)qbuf->buf, NULL},
+				{0, util_buffer_offset + ((result_count - result_index == 1) ? 4 : 0), util_buffer, NULL},
+			};
+			if (result_count - result_index == 1)
+				so_target = rctx->b.create_stream_output_target(&rctx->b, resource, offset, 8);
+			else
+				so_target = rctx->b.create_stream_output_target(&rctx->b, util_buffer, util_buffer_offset + 24 + 8 * result_index, 8);
+			rctx->b.set_stream_output_targets(&rctx->b, 1, &so_target, &so_offset);
+			pipe_so_target_reference(&so_target, NULL);
+
+
+			rctx->b.bind_vertex_elements_state(&rctx->b, ve_state);
+			rctx->b.set_vertex_buffers(&rctx->b, 0, 3, vertex_buffers);
+
+			draw_info.count = 1;
+			draw_info.instance_count = 1;
+			rctx->b.draw_vbo(&rctx->b, &draw_info);
+
+			rctx->b.set_stream_output_targets(&rctx->b, 0, NULL, NULL);
+			results_base += result_size;
+			++result_index;
+		}
+	}
+
+
+	r600_query_restore_qbo_state(rctx, &saved_state);
+	rctx->b.delete_vertex_elements_state(&rctx->b, ve_state);
+	pipe_resource_reference(&util_buffer, NULL);
 }
 
 static void r600_render_condition(struct pipe_context *ctx,
@@ -1292,6 +1566,7 @@ void r600_query_init(struct r600_common_context *rctx)
 	rctx->b.begin_query = r600_begin_query;
 	rctx->b.end_query = r600_end_query;
 	rctx->b.get_query_result = r600_get_query_result;
+	rctx->b.get_query_result_resource = r600_get_query_result_resource;
 	rctx->render_cond_atom.emit = r600_emit_query_predication;
 
 	if (((struct r600_common_screen*)rctx->b.screen)->info.num_render_backends > 0)

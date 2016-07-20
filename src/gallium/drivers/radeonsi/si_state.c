@@ -1874,7 +1874,7 @@ static boolean si_is_format_supported(struct pipe_screen *screen,
  * framebuffer handling
  */
 
-static void si_choose_spi_color_formats(struct radv_color_buffer_info *cb,
+static void si_choose_spi_color_formats(struct r600_surface *surf,
 					unsigned format, unsigned swap,
 					unsigned ntype, bool is_depth)
 {
@@ -1985,10 +1985,10 @@ static void si_choose_spi_color_formats(struct radv_color_buffer_info *cb,
 	if (is_depth)
 		alpha = blend = blend_alpha = normal = V_028714_SPI_SHADER_32_ABGR;
 
-	cb->spi_shader_col_format = normal;
-	cb->spi_shader_col_format_alpha = alpha;
-	cb->spi_shader_col_format_blend = blend;
-	cb->spi_shader_col_format_blend_alpha = blend_alpha;
+	surf->spi_shader_col_format = normal;
+	surf->spi_shader_col_format_alpha = alpha;
+	surf->spi_shader_col_format_blend = blend;
+	surf->spi_shader_col_format_blend_alpha = blend_alpha;
 }
 
 static void si_initialize_color_surface(struct si_context *sctx,

@@ -1073,19 +1073,6 @@ void radv_DestroyFence(
 	radv_free2(&device->alloc, pAllocator, fence);
 }
 
-static uint64_t radv_get_absolute_timeout(uint64_t timeout)
-{
-	uint64_t current_time;
-	struct timespec tv;
-
-	clock_gettime(CLOCK_MONOTONIC, &tv);
-	current_time = tv.tv_nsec + tv.tv_sec*1000000000ull;
-
-	timeout = MIN2(UINT64_MAX - current_time, timeout);
-
-	return current_time + timeout;
-}
-
 VkResult radv_WaitForFences(
 	VkDevice                                    _device,
 	uint32_t                                    fenceCount,
@@ -1094,28 +1081,31 @@ VkResult radv_WaitForFences(
 	uint64_t                                    timeout)
 {
 	RADV_FROM_HANDLE(radv_device, device, _device);
-	timeout = radv_get_absolute_timeout(timeout);
+	unsigned idx = 0;
+	bool result;
 
-	if (!waitAll && fenceCount > 1) {
-		fprintf(stderr, "radv: WaitForFences without waitAll not implemented yet\n");
-	}
+	struct radeon_winsys_fence ** fences = malloc(fenceCount * sizeof(struct radeon_winsys_fence*));
+	if (!fences)
+		return VK_ERROR_OUT_OF_HOST_MEMORY;
 
 	for (uint32_t i = 0; i < fenceCount; ++i) {
 		RADV_FROM_HANDLE(radv_fence, fence, pFences[i]);
-		bool expired = false;
 
 		if (!fence->submitted)
 			return VK_TIMEOUT;
 
-		if (fence->signalled)
-			continue;
+		if (fence->signalled) {
+			if (!waitAll) {
+				free(fences);
+				return VK_SUCCESS;
+			} else
+				continue;
+		}
 
-		expired = device->ws->fence_wait(device->ws, fence->fence, true, timeout);
-		if (!expired)
-			return VK_TIMEOUT;
-
-		fence->signalled = true;
+		fences[idx++] = fence->fence;
 	}
+
+	result = device->ws->fences_wait(device->ws, fences, idx, waitAll, timeout);
 
 	return VK_SUCCESS;
 }
@@ -1140,7 +1130,7 @@ VkResult radv_GetFenceStatus(VkDevice _device, VkFence _fence)
 	if (!fence->submitted)
 		return VK_NOT_READY;
 
-	if (!device->ws->fence_wait(device->ws, fence->fence, false, 0))
+	if (!device->ws->fences_wait(device->ws, &fence->fence, 1, true, 0))
 		return VK_NOT_READY;
 
 	return VK_SUCCESS;

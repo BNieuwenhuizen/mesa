@@ -75,23 +75,36 @@ static void radv_amdgpu_destroy_fence(struct radeon_winsys_fence *_fence)
 	free(fence);
 }
 
-static bool radv_amdgpu_fence_wait(struct radeon_winsys *_ws,
-			      struct radeon_winsys_fence *_fence,
-			      bool absolute,
-			      uint64_t timeout)
+/* TODO: check libdrm version */
+#if 1
+static bool radv_amdgpu_fences_wait(struct radeon_winsys *_ws,
+                                    struct radeon_winsys_fence **_fences,
+                                    unsigned count,
+                                    bool wait_all,
+                                    uint64_t timeout)
 {
-	struct amdgpu_cs_fence *fence = (struct amdgpu_cs_fence *)_fence;
-	unsigned flags = absolute ? AMDGPU_QUERY_FENCE_TIMEOUT_IS_ABSOLUTE : 0;
+
+	struct amdgpu_cs_fence *fences;
 	int r;
 	uint32_t expired = 0;
-	/* Now use the libdrm query. */
-	r = amdgpu_cs_query_fence_status(fence,
-					 timeout,
-					 flags,
-					 &expired);
 
+	if (count == 0)
+		return true;
+	if (count > 1) {
+		fences = malloc(sizeof(struct amdgpu_cs_fence) * count);
+		if (!fences)
+			return false;
+
+		for (unsigned i = 0; i < count; ++i)
+			fences[i] = *(struct amdgpu_cs_fence*)_fences[i];
+	} else
+		fences = (struct amdgpu_cs_fence*)_fences[0];
+	r = amdgpu_cs_wait_fences(fences, count, wait_all, timeout, &expired);
+
+	if (count > 1)
+		free(fences);
 	if (r) {
-		fprintf(stderr, "amdgpu: radv_amdgpu_cs_query_fence_status failed.\n");
+		fprintf(stderr, "amdgpu: amdgpu_cs_wait_fences failed.\n");
 		return false;
 	}
 
@@ -101,6 +114,90 @@ static bool radv_amdgpu_fence_wait(struct radeon_winsys *_ws,
 	return false;
 
 }
+
+#endif
+
+static bool radv_amdgpu_fence_wait_single(struct radeon_winsys_fence *_fence,
+                                          bool absolute,
+                                          uint64_t timeout)
+{
+	struct amdgpu_cs_fence *fence = (struct amdgpu_cs_fence *)_fence;
+	unsigned flags = absolute ? AMDGPU_QUERY_FENCE_TIMEOUT_IS_ABSOLUTE : 0;
+	int r;
+	uint32_t expired = 0;
+	/* Now use the libdrm query. */
+	r = amdgpu_cs_query_fence_status(fence,
+					timeout,
+					flags,
+					&expired);
+
+	if (r) {
+		fprintf(stderr, "amdgpu: radv_amdgpu_cs_query_fence_status failed.\n");
+		return false;
+	}
+
+	if (expired) {
+		return true;
+	}
+
+	return false;
+}
+
+static uint64_t radv_amdgpu_get_absolute_timeout(uint64_t timeout)
+{
+	uint64_t current_time;
+	struct timespec tv;
+
+	clock_gettime(CLOCK_MONOTONIC, &tv);
+	current_time = tv.tv_nsec + tv.tv_sec*1000000000ull;
+
+	timeout = MIN2(UINT64_MAX - current_time, timeout);
+
+	return current_time + timeout;
+}
+
+static bool radv_amdgpu_fences_wait_fallback(struct radeon_winsys *_ws,
+                                             struct radeon_winsys_fence **_fences,
+                                             unsigned count,
+                                             bool wait_all,
+                                             uint64_t timeout)
+{
+	if (count == 0)
+		return true;
+	if (count == 1)
+		return radv_amdgpu_fence_wait_single(_fences[0], false, timeout);
+
+	timeout = radv_amdgpu_get_absolute_timeout(timeout);
+
+	if (wait_all) {
+		for (unsigned i = 0; i < count; ++i) {
+			if (radv_amdgpu_fence_wait_single(_fences[i], true, timeout))
+				return true;
+		}
+		return false;
+	} else {
+		for (;;) {
+			uint64_t current_time;
+			struct timespec tv;
+
+			clock_gettime(CLOCK_MONOTONIC, &tv);
+			current_time = tv.tv_nsec + tv.tv_sec*1000000000ull;
+
+			if (current_time > timeout)
+				return false;
+
+			/* busy wait cycles, but I'm not sure we have any other
+			 * option here. */
+			for (unsigned i = 0; i < count; ++i) {
+				if (radv_amdgpu_fence_wait_single(_fences[i], true, timeout))
+					return true;
+			}
+		}
+	}
+	return false;
+
+}
+
 
 static void radv_amdgpu_cs_destroy(struct radeon_winsys_cs *rcs)
 {
@@ -631,5 +728,8 @@ void radv_amdgpu_cs_init_functions(struct radv_amdgpu_winsys *ws)
 	ws->base.cs_submit = radv_amdgpu_winsys_cs_submit;
 	ws->base.create_fence = radv_amdgpu_create_fence;
 	ws->base.destroy_fence = radv_amdgpu_destroy_fence;
-	ws->base.fence_wait = radv_amdgpu_fence_wait;
+	ws->base.fences_wait = radv_amdgpu_fences_wait_fallback;
+
+	if (1) /* TODO: check DRM version */
+		ws->base.fences_wait = radv_amdgpu_fences_wait;
 }

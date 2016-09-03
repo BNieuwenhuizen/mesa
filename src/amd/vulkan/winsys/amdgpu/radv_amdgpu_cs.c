@@ -40,7 +40,6 @@ struct radv_amdgpu_cs {
 	unsigned                    num_buffers;
 	amdgpu_bo_handle            *handles;
 	uint8_t                     *priorities;
-	//  struct radv_amdgpu_cs_buffer     *buffers;
 
 	bool                        failed;
 
@@ -419,11 +418,6 @@ static int radv_amdgpu_winsys_cs_submit(struct radeon_winsys_ctx *_ctx,
 
 	return 0;
 }
-
-/* add buffer */
-/* validate */
-/* check space? */
-/* is buffer referenced */
 
 static struct radeon_winsys_ctx *radv_amdgpu_ctx_create(struct radeon_winsys *_ws)
 {

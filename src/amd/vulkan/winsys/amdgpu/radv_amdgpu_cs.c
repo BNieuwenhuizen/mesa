@@ -287,6 +287,10 @@ static int radv_amdgpu_create_bo_list(struct radv_amdgpu_winsys *ws,
 	} else {
 		unsigned total_buffer_count = !!extra_bo;
 		unsigned unique_bo_count = !!extra_bo;
+		int hash_table[512];
+		for (int i = 0; i < ARRAY_SIZE(hash_table); ++i)
+			hash_table[i] = -1;
+
 		for (unsigned i = 0; i < count; ++i) {
 			struct radv_amdgpu_cs *cs = (struct radv_amdgpu_cs*)cs_array[i];
 			total_buffer_count += cs->num_buffers;
@@ -308,18 +312,30 @@ static int radv_amdgpu_create_bo_list(struct radv_amdgpu_winsys *ws,
 		for (unsigned i = 0; i < count; ++i) {
 			struct radv_amdgpu_cs *cs = (struct radv_amdgpu_cs*)cs_array[i];
 			for (unsigned j = 0; j < cs->num_buffers; ++j) {
+				unsigned hash = ((uintptr_t)cs->handles[j] >> 6) & (ARRAY_SIZE(hash_table) - 1);
+				int idx = hash_table[hash];
 				bool found = false;
-				for (unsigned k = 0; k < unique_bo_count; ++k) {
-					if (handles[k] == cs->handles[j]) {
-						found = true;
-						priorities[k] = MAX2(priorities[k],
-								     cs->priorities[j]);
-						break;
+
+				if (idx >= 0 && handles[idx] == cs->handles[j]) {
+					found = true;
+					priorities[idx] = MAX2(priorities[idx],
+							       cs->priorities[j]);
+					hash_table[hash] = idx;
+				} else if (idx >= 0) {
+					for (unsigned k = 0; k < unique_bo_count; ++k) {
+						if (handles[k] == cs->handles[j]) {
+							found = true;
+							priorities[k] = MAX2(priorities[k],
+									cs->priorities[j]);
+							hash_table[hash] = k;
+							break;
+						}
 					}
 				}
 				if (!found) {
 					handles[unique_bo_count] = cs->handles[j];
 					priorities[unique_bo_count] = cs->priorities[j];
+					hash_table[hash] = unique_bo_count;
 					++unique_bo_count;
 				}
 			}

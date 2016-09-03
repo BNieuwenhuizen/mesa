@@ -30,6 +30,7 @@
 #include "radv_radeon_winsys.h"
 #include "radv_amdgpu_cs.h"
 #include "radv_amdgpu_bo.h"
+#include "amdgpu_id.h"
 #include "sid.h"
 
 struct radv_amdgpu_cs {
@@ -133,8 +134,6 @@ static void radv_amdgpu_cs_grow(struct radeon_winsys_cs *_cs, size_t min_size)
 	struct radv_amdgpu_cs *cs = radv_amdgpu_cs(_cs);
 	uint64_t new_max_dw = MAX2(min_size, cs->base.max_dw * 2);
 	uint32_t *new_buf;
-
-	new_max_dw = MIN2(new_max_dw, 0xffff8);
 
 	if (cs->failed) {
 		cs->base.cdw = 0;
@@ -346,6 +345,10 @@ static int radv_amdgpu_winsys_cs_submit(struct radeon_winsys_ctx *_ctx,
 	struct radeon_winsys *ws = (struct radeon_winsys*)cs0->ws;
 	amdgpu_bo_list_handle bo_list;
 	struct amdgpu_cs_request request;
+	uint32_t pad_word = 0xffff1000U;
+
+	if (radv_amdgpu_winsys(ws)->family == FAMILY_SI)
+		pad_word = 0x80000000;
 
 	assert(cs_count);
 
@@ -356,7 +359,7 @@ static int radv_amdgpu_winsys_cs_submit(struct radeon_winsys_ctx *_ctx,
 		unsigned cnt = 0;
 		unsigned size = 0;
 
-		while (i + cnt < cs_count && 0xfffff - size >= radv_amdgpu_cs(cs_array[i + cnt])->base.cdw) {
+		while (i + cnt < cs_count && 0xffff8 - size >= radv_amdgpu_cs(cs_array[i + cnt])->base.cdw) {
 			size += radv_amdgpu_cs(cs_array[i + cnt])->base.cdw;
 			++cnt;
 		}
@@ -372,6 +375,12 @@ static int radv_amdgpu_winsys_cs_submit(struct radeon_winsys_ctx *_ctx,
 			ptr += cs->base.cdw;
 
 		}
+
+		while(!size || (size & 7)) {
+			*ptr++ = pad_word;
+			++size;
+		}
+
 		memset(&request, 0, sizeof(request));
 
 

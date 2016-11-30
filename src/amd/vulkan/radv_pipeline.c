@@ -1967,11 +1967,19 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 {
 	struct radv_shader_module fs_m = {0};
 	struct radv_shader_module *modules[MESA_SHADER_STAGES] = { 0, };
+	unsigned char hash[20];
 
 	for (unsigned i = 0; i < MESA_SHADER_STAGES; ++i) {
-		if (pStages[i])
+		if (pStages[i]) {
 			modules[i] = radv_shader_module_from_handle(pStages[i]->module);
+			if (modules[i]->nir)
+				_mesa_sha1_compute(modules[i]->nir->info.name,
+				                   strlen(modules[i]->nir->info.name),
+				                   modules[i]->sha1);
+		}
 	}
+
+	radv_hash_shaders(hash, pStages, pipeline->layout, keys);
 
 	if (!modules[MESA_SHADER_FRAGMENT] && modules[MESA_SHADER_VERTEX]) {
 		nir_builder fs_b;

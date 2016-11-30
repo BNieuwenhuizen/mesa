@@ -1297,6 +1297,7 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 	struct radv_shader_module fs_m = {0};
 	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
 	struct radv_shader_module *modules[MESA_SHADER_STAGES] = { 0, };
+	unsigned char hash[20];
 
 	bool dump = getenv("RADV_DUMP_SHADERS");
 
@@ -1304,7 +1305,13 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 		gl_shader_stage stage = ffs(stages[i].stage) - 1;
 		pStages[stage] = &stages[i];
 		modules[stage] = radv_shader_module_from_handle(pStages[stage]->module);
+		if (modules[stage]->nir)
+			_mesa_sha1_compute(modules[stage]->nir->info->name,
+					   strlen(modules[stage]->nir->info->name),
+					   modules[stage]->sha1);
 	}
+
+	radv_hash_shaders(hash, pStages, pipeline->layout, keys);
 
 	if (!modules[MESA_SHADER_FRAGMENT] && modules[MESA_SHADER_VERTEX]) {
 		nir_builder fs_b;

@@ -1286,6 +1286,52 @@ radv_compute_vs_key(const VkGraphicsPipelineCreateInfo *pCreateInfo)
 	return key;
 }
 
+static
+void radv_create_shaders(struct radv_pipeline *pipeline,
+                         struct radv_device *device,
+                         struct radv_pipeline_cache *cache,
+                         const union ac_shader_variant_key *keys,
+                         const VkPipelineShaderStageCreateInfo *stages,
+                         int stage_count)
+{
+	struct radv_shader_module fs_m = {0};
+	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
+	struct radv_shader_module *modules[MESA_SHADER_STAGES] = { 0, };
+
+	bool dump = getenv("RADV_DUMP_SHADERS");
+
+	for (uint32_t i = 0; i < stage_count; i++) {
+		gl_shader_stage stage = ffs(stages[i].stage) - 1;
+		pStages[stage] = &stages[i];
+		modules[stage] = radv_shader_module_from_handle(pStages[stage]->module);
+	}
+
+	if (!modules[MESA_SHADER_FRAGMENT] && modules[MESA_SHADER_VERTEX]) {
+		nir_builder fs_b;
+		nir_builder_init_simple_shader(&fs_b, NULL, MESA_SHADER_FRAGMENT, NULL);
+		fs_b.shader->info->name = ralloc_strdup(fs_b.shader, "noop_fs");
+		fs_m.nir = fs_b.shader;
+		modules[MESA_SHADER_FRAGMENT] = &fs_m;
+	}
+
+	for (int i = 0; i < MESA_SHADER_STAGES; ++i) {
+		if(modules[i]) {
+			const VkPipelineShaderStageCreateInfo *stage = pStages[i];
+
+			pipeline->shaders[i] =
+			 radv_pipeline_compile(pipeline, cache, modules[i],
+					       stage ? stage->pName : "main",
+					       i,
+					       stage ? stage->pSpecializationInfo : NULL,
+					       pipeline->layout, keys + i, dump);
+
+			pipeline->active_stages |= mesa_to_vk_shader_stage(i);
+		}
+	}
+	if (fs_m.nir)
+		ralloc_free(fs_m.nir);
+}
+
 VkResult
 radv_pipeline_init(struct radv_pipeline *pipeline,
 		   struct radv_device *device,
@@ -1294,9 +1340,8 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 		   const struct radv_graphics_pipeline_create_info *extra,
 		   const VkAllocationCallbacks *alloc)
 {
-	struct radv_shader_module fs_m = {0};
+	union ac_shader_variant_key keys[MESA_SHADER_STAGES];
 
-	bool dump = getenv("RADV_DUMP_SHADERS");
 	if (alloc == NULL)
 		alloc = &device->alloc;
 
@@ -1304,56 +1349,14 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	pipeline->layout = radv_pipeline_layout_from_handle(pCreateInfo->layout);
 
 	radv_pipeline_init_dynamic_state(pipeline, pCreateInfo);
-	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
-	struct radv_shader_module *modules[MESA_SHADER_STAGES] = { 0, };
-	for (uint32_t i = 0; i < pCreateInfo->stageCount; i++) {
-		gl_shader_stage stage = ffs(pCreateInfo->pStages[i].stage) - 1;
-		pStages[stage] = &pCreateInfo->pStages[i];
-		modules[stage] = radv_shader_module_from_handle(pStages[stage]->module);
-	}
-
 	radv_pipeline_init_blend_state(pipeline, pCreateInfo, extra);
 
-	/* */
-	if (modules[MESA_SHADER_VERTEX]) {
-		union ac_shader_variant_key key = radv_compute_vs_key(pCreateInfo);
+	memset(keys, 0, sizeof(keys));
+	keys[MESA_SHADER_VERTEX] = radv_compute_vs_key(pCreateInfo);
+	keys[MESA_SHADER_FRAGMENT].fs.col_format = pipeline->graphics.blend.spi_shader_col_format;
+	keys[MESA_SHADER_FRAGMENT].fs.is_int8 = radv_pipeline_compute_is_int8(pCreateInfo);
 
-		pipeline->shaders[MESA_SHADER_VERTEX] =
-			 radv_pipeline_compile(pipeline, cache, modules[MESA_SHADER_VERTEX],
-					       pStages[MESA_SHADER_VERTEX]->pName,
-					       MESA_SHADER_VERTEX,
-					       pStages[MESA_SHADER_VERTEX]->pSpecializationInfo,
-					       pipeline->layout, &key, dump);
-
-		pipeline->active_stages |= mesa_to_vk_shader_stage(MESA_SHADER_VERTEX);
-	}
-
-	if (!modules[MESA_SHADER_FRAGMENT]) {
-		nir_builder fs_b;
-		nir_builder_init_simple_shader(&fs_b, NULL, MESA_SHADER_FRAGMENT, NULL);
-		fs_b.shader->info->name = ralloc_strdup(fs_b.shader, "noop_fs");
-		fs_m.nir = fs_b.shader;
-		modules[MESA_SHADER_FRAGMENT] = &fs_m;
-	}
-
-	if (modules[MESA_SHADER_FRAGMENT]) {
-		union ac_shader_variant_key key;
-		key.fs.col_format = pipeline->graphics.blend.spi_shader_col_format;
-		key.fs.is_int8 = radv_pipeline_compute_is_int8(pCreateInfo);
-
-		const VkPipelineShaderStageCreateInfo *stage = pStages[MESA_SHADER_FRAGMENT];
-
-		pipeline->shaders[MESA_SHADER_FRAGMENT] =
-			 radv_pipeline_compile(pipeline, cache, modules[MESA_SHADER_FRAGMENT],
-					       stage ? stage->pName : "main",
-					       MESA_SHADER_FRAGMENT,
-					       stage ? stage->pSpecializationInfo : NULL,
-					       pipeline->layout, &key, dump);
-		pipeline->active_stages |= mesa_to_vk_shader_stage(MESA_SHADER_FRAGMENT);
-	}
-
-	if (fs_m.nir)
-		ralloc_free(fs_m.nir);
+	radv_create_shaders(pipeline, device, cache, keys, pCreateInfo->pStages, pCreateInfo->stageCount);
 
 	radv_pipeline_init_depth_stencil_state(pipeline, pCreateInfo, extra);
 	radv_pipeline_init_raster_state(pipeline, pCreateInfo);
@@ -1476,9 +1479,7 @@ static VkResult radv_compute_pipeline_create(
 {
 	RADV_FROM_HANDLE(radv_device, device, _device);
 	RADV_FROM_HANDLE(radv_pipeline_cache, cache, _cache);
-	RADV_FROM_HANDLE(radv_shader_module, module, pCreateInfo->stage.module);
 	struct radv_pipeline *pipeline;
-	bool dump = getenv("RADV_DUMP_SHADERS");
 
 	pipeline = vk_alloc2(&device->alloc, pAllocator, sizeof(*pipeline), 8,
 			       VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
@@ -1489,12 +1490,10 @@ static VkResult radv_compute_pipeline_create(
 	pipeline->device = device;
 	pipeline->layout = radv_pipeline_layout_from_handle(pCreateInfo->layout);
 
-	pipeline->shaders[MESA_SHADER_COMPUTE] =
-		 radv_pipeline_compile(pipeline, cache, module,
-				       pCreateInfo->stage.pName,
-				       MESA_SHADER_COMPUTE,
-				       pCreateInfo->stage.pSpecializationInfo,
-				       pipeline->layout, NULL, dump);
+	union ac_shader_variant_key keys[MESA_SHADER_STAGES];
+	memset(keys, 0, sizeof(keys));
+
+	radv_create_shaders(pipeline, device, cache, keys, &pCreateInfo->stage, 1);
 
 	*pPipeline = radv_pipeline_to_handle(pipeline);
 
@@ -1503,6 +1502,7 @@ static VkResult radv_compute_pipeline_create(
 	}
 	return VK_SUCCESS;
 }
+
 VkResult radv_CreateComputePipelines(
 	VkDevice                                    _device,
 	VkPipelineCache                             pipelineCache,

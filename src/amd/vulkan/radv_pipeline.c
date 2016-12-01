@@ -1297,6 +1297,9 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 	struct radv_shader_module fs_m = {0};
 	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
 	struct radv_shader_module *modules[MESA_SHADER_STAGES] = { 0, };
+	nir_shader *nir[MESA_SHADER_STAGES] = {0};
+	void *codes[MESA_SHADER_STAGES] = {0};
+	unsigned code_sizes[MESA_SHADER_STAGES] = {0};
 	unsigned char hash[20];
 
 	bool dump = getenv("RADV_DUMP_SHADERS");
@@ -1313,6 +1316,9 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 
 	radv_hash_shaders(hash, pStages, pipeline->layout, keys);
 
+	if (radv_create_shader_variants_from_pipeline_cache(device, cache, hash, pipeline->shaders))
+		return;
+
 	if (!modules[MESA_SHADER_FRAGMENT] && modules[MESA_SHADER_VERTEX]) {
 		nir_builder fs_b;
 		nir_builder_init_simple_shader(&fs_b, NULL, MESA_SHADER_FRAGMENT, NULL);
@@ -1325,16 +1331,34 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 		if(modules[i]) {
 			const VkPipelineShaderStageCreateInfo *stage = pStages[i];
 
-			pipeline->shaders[i] =
-			 radv_pipeline_compile(pipeline, cache, modules[i],
-					       stage ? stage->pName : "main",
-					       i,
-					       stage ? stage->pSpecializationInfo : NULL,
-					       pipeline->layout, keys + i, dump);
+			nir[i] = radv_shader_compile_to_nir(device,
+				         modules[i], stage ? stage->pName : "main", i,
+					 stage ? stage->pSpecializationInfo : NULL, dump);
+
 
 			pipeline->active_stages |= mesa_to_vk_shader_stage(i);
 		}
 	}
+
+	for (int i = 0; i < MESA_SHADER_STAGES; ++i) {
+		if(modules[i]) {
+			pipeline->shaders[i] = radv_shader_variant_create(device, nir[i],
+									  pipeline->layout,
+									  keys + i, &codes[i],
+									  &code_sizes[i], dump);
+
+			if (!modules[i]->nir)
+				ralloc_free(nir[i]);
+		}
+	}
+
+	if (cache)
+		radv_pipeline_cache_insert_shaders(cache, hash, pipeline->shaders,
+						   (const void**)codes, code_sizes);
+
+	for (int i = 0; i < MESA_SHADER_STAGES; ++i)
+		free(codes[i]);
+
 	if (fs_m.nir)
 		ralloc_free(fs_m.nir);
 }

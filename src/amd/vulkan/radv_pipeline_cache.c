@@ -202,6 +202,58 @@ radv_create_shader_variant_from_pipeline_cache(struct radv_device *device,
 	return entry->variants[0];
 }
 
+bool
+radv_create_shader_variants_from_pipeline_cache(struct radv_device *device,
+					        struct radv_pipeline_cache *cache,
+					        const unsigned char *sha1,
+					        struct radv_shader_variant **variants)
+{
+	struct cache_entry *entry = radv_pipeline_cache_search(cache, sha1);
+
+	if (!entry)
+		return false;
+
+	char *p = entry->code;
+	for(int i = 0; i < MESA_SHADER_STAGES; ++i) {
+		if (!entry->variants[i] && entry->code_sizes[i]) {
+			struct radv_shader_variant *variant;
+			struct cache_entry_variant_info info;
+
+			variant = calloc(1, sizeof(struct radv_shader_variant));
+			if (!variant)
+				return false;
+
+			memcpy(&info, p, sizeof(struct cache_entry_variant_info));
+			p += sizeof(struct cache_entry_variant_info);
+
+			variant->config = info.config;
+			variant->info = info.variant_info;
+			variant->rsrc1 = info.rsrc1;
+			variant->rsrc2 = info.rsrc2;
+			variant->code_size = entry->code_sizes[i];
+			variant->ref_count = 1;
+
+			variant->bo = device->ws->buffer_create(device->ws, entry->code_sizes[i], 256,
+							RADEON_DOMAIN_GTT, RADEON_FLAG_CPU_ACCESS);
+
+			void *ptr = device->ws->buffer_map(variant->bo);
+			memcpy(ptr, p, entry->code_sizes[i]);
+			device->ws->buffer_unmap(variant->bo);
+			p += entry->code_sizes[i];
+
+			entry->variants[i] = variant;
+		}
+
+	}
+
+	for (int i = 0; i < MESA_SHADER_STAGES; ++i)
+		if (entry->variants[i])
+			__sync_fetch_and_add(&entry->variants[i]->ref_count, 1);
+
+	memcpy(variants, entry->variants, sizeof(entry->variants));
+	return true;
+}
+
 
 static void
 radv_pipeline_cache_set_entry(struct radv_pipeline_cache *cache,
@@ -326,6 +378,74 @@ radv_pipeline_cache_insert_shader(struct radv_pipeline_cache *cache,
 	cache->modified = true;
 	pthread_mutex_unlock(&cache->mutex);
 	return variant;
+}
+
+void
+radv_pipeline_cache_insert_shaders(struct radv_pipeline_cache *cache,
+				   const unsigned char *sha1,
+				   struct radv_shader_variant **variants,
+				   const void *const *codes,
+				   const unsigned *code_sizes)
+{
+	pthread_mutex_lock(&cache->mutex);
+	struct cache_entry *entry = radv_pipeline_cache_search_unlocked(cache, sha1);
+	if (entry) {
+		for (int i = 0; i < MESA_SHADER_STAGES; ++i) {
+			if (entry->variants[i]) {
+				radv_shader_variant_destroy(cache->device, variants[i]);
+				variants[i] = entry->variants[i];
+			} else {
+				entry->variants[i] = variants[i];
+			}
+			__sync_fetch_and_add(&variants[i]->ref_count, 1);
+		}
+		pthread_mutex_unlock(&cache->mutex);
+		return;
+	}
+	size_t size = sizeof(*entry);
+	for (int i = 0; i < MESA_SHADER_STAGES; ++i)
+		if (variants[i])
+			size += sizeof(struct cache_entry_variant_info) + code_sizes[i];
+
+
+	entry = vk_alloc(&cache->alloc, size, 8,
+			   VK_SYSTEM_ALLOCATION_SCOPE_CACHE);
+	if (!entry) {
+		pthread_mutex_unlock(&cache->mutex);
+		return;
+	}
+
+	memset(entry, 0, sizeof(*entry));
+	memcpy(entry->sha1, sha1, 20);
+
+	char* p = entry->code;
+	struct cache_entry_variant_info info;
+
+	for (int i = 0; i < MESA_SHADER_STAGES; ++i) {
+		if (!variants[i])
+			continue;
+
+		entry->code_sizes[i] = code_sizes[i];
+
+		info.config = variants[i]->config;
+		info.variant_info = variants[i]->info;
+		info.rsrc1 = variants[i]->rsrc1;
+		info.rsrc2 = variants[i]->rsrc2;
+		memcpy(p, &info, sizeof(struct cache_entry_variant_info));
+		p += sizeof(struct cache_entry_variant_info);
+
+		memcpy(p, codes[i], code_sizes[i]);
+		p += code_sizes[i];
+
+		entry->variants[i] = variants[i];
+		__sync_fetch_and_add(&variants[i]->ref_count, 1);
+	}
+
+	radv_pipeline_cache_add_entry(cache, entry);
+
+	cache->modified = true;
+	pthread_mutex_unlock(&cache->mutex);
+	return;
 }
 
 struct cache_header {

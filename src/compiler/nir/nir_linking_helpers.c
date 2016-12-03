@@ -81,6 +81,7 @@ nir_remove_unwritten_outputs(nir_shader *shader)
           */
          exec_node_remove(&var->node);
          exec_list_push_tail(&shader->globals, &var->node);
+	 fprintf(stderr, "removed unwritten output\n");
          progress = true;
       }
    }
@@ -172,6 +173,8 @@ compact_var_list(nir_shader *shader, struct exec_list *var_list,
          assert(var->data.location < 64);
          assert(remap[var->data.location] >= 0);
 
+	 if (remap[var->data.location] != var->data.location)
+		 fprintf(stderr, "compacted varying %d %d\n", var->data.location, remap[var->data.location]);
          var->data.location = remap[var->data.location];
       }
 

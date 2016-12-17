@@ -887,10 +887,19 @@ bool radv_layout_can_expclear(const struct radv_image *image,
 }
 
 bool radv_layout_has_cmask(const struct radv_image *image,
-			   VkImageLayout layout)
+			   VkImageLayout layout,
+			   unsigned queue_mask)
 {
 	return (layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
-		layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) &&
+		queue_mask == (1u << RADV_QUEUE_GENERAL);
+}
+
+
+unsigned radv_image_queue_family_mask(const struct radv_image *image, int family) {
+	if (image->exclusive)
+		return 1u <<family;
+	return image->queue_family_mask;
 }
 
 VkResult

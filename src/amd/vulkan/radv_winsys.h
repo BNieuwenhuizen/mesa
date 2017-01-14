@@ -26,8 +26,8 @@
  * IN THE SOFTWARE.
  */
 
-#ifndef RADV_RADEON_WINSYS_H
-#define RADV_RADEON_WINSYS_H
+#ifndef RADV_WINSYS_H
+#define RADV_WINSYS_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -351,4 +351,4 @@ static inline void radeon_emit_array(struct radeon_winsys_cs *cs,
 	cs->cdw += count;
 }
 
-#endif /* RADV_RADEON_WINSYS_H */
+#endif /* RADV_WINSYS_H */

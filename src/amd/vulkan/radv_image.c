@@ -27,7 +27,6 @@
 
 #include "radv_private.h"
 #include "vk_format.h"
-#include "radv_radeon_winsys.h"
 #include "sid.h"
 #include "util/debug.h"
 static unsigned

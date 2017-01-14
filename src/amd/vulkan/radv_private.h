@@ -50,7 +50,7 @@
 #include "util/vk_alloc.h"
 #include "main/macros.h"
 
-#include "radv_radeon_winsys.h"
+#include "radv_winsys.h"
 #include "ac_binary.h"
 #include "ac_nir_to_llvm.h"
 #include "radv_descriptor_set.h"

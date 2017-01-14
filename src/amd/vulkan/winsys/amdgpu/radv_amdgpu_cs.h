@@ -35,7 +35,7 @@
 #include "r600d_common.h"
 #include <amdgpu.h>
 
-#include "radv_radeon_winsys.h"
+#include "radv_winsys.h"
 #include "radv_amdgpu_winsys.h"
 
 enum {

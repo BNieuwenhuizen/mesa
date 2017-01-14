@@ -28,7 +28,7 @@
 #ifndef RADV_AMDGPU_WINSYS_H
 #define RADV_AMDGPU_WINSYS_H
 
-#include "radv_radeon_winsys.h"
+#include "radv_winsys.h"
 #include "addrlib/addrinterface.h"
 #include <amdgpu.h>
 #include "util/list.h"

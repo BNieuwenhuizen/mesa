@@ -30,6 +30,12 @@ RADV_WS_AMDGPU_FILES := \
 	winsys/amdgpu/radv_amdgpu_winsys.h \
 	winsys/amdgpu/radv_amdgpu_winsys_public.h
 
+RADV_WS_RADEON_FILES := \
+	winsys/radeon/radv_radeon_bo.c \
+	winsys/radeon/radv_radeon_cs.c \
+	winsys/radeon/radv_radeon_surface.c \
+	winsys/radeon/radv_radeon_winsys.c
+
 VULKAN_FILES := \
 	radv_cmd_buffer.c \
 	radv_cs.h \
@@ -62,7 +68,8 @@ VULKAN_FILES := \
 	si_cmd_buffer.c \
 	vk_format_table.c \
 	vk_format.h \
-	$(RADV_WS_AMDGPU_FILES)
+	$(RADV_WS_AMDGPU_FILES) \
+	$(RADV_WS_RADEON_FILES)
 
 VULKAN_WSI_WAYLAND_FILES := \
 	radv_wsi_wayland.c

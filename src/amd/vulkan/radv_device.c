@@ -39,6 +39,7 @@
 #include <amdgpu_drm.h>
 #include "amdgpu_id.h"
 #include "winsys/amdgpu/radv_amdgpu_winsys_public.h"
+#include "winsys/radeon/radv_radeon_winsys_public.h"
 #include "ac_llvm_util.h"
 #include "vk_format.h"
 #include "sid.h"
@@ -186,6 +187,7 @@ radv_physical_device_init(struct radv_physical_device *device,
 {
 	VkResult result;
 	drmVersionPtr version;
+	bool is_radeon, is_amdgpu;
 	int fd;
 
 	fd = open(path, O_RDWR | O_CLOEXEC);
@@ -200,7 +202,11 @@ radv_physical_device_init(struct radv_physical_device *device,
 				 "failed to get version %s: %m", path);
 	}
 
-	if (strcmp(version->name, "amdgpu")) {
+	is_radeon = strcmp(version->name, "radeon") == 0;
+	is_amdgpu = strcmp(version->name, "amdgpu") == 0;
+	fprintf(stderr, "path: %s %d %d\n", path, is_radeon, is_amdgpu);
+
+	if (!is_radeon && !is_amdgpu) {
 		drmFreeVersion(version);
 		close(fd);
 		return VK_ERROR_INCOMPATIBLE_DRIVER;
@@ -212,7 +218,10 @@ radv_physical_device_init(struct radv_physical_device *device,
 	assert(strlen(path) < ARRAY_SIZE(device->path));
 	strncpy(device->path, path, ARRAY_SIZE(device->path));
 
-	device->ws = radv_amdgpu_winsys_create(fd);
+	if (is_amdgpu)
+		device->ws = radv_amdgpu_winsys_create(fd);
+	else
+		device->ws = radv_radeon_winsys_create(fd);
 	if (!device->ws) {
 		result = VK_ERROR_INCOMPATIBLE_DRIVER;
 		goto fail;
@@ -1346,7 +1355,7 @@ VkResult radv_CreateFence(
 	memset(fence, 0, sizeof(*fence));
 	fence->submitted = false;
 	fence->signalled = !!(pCreateInfo->flags & VK_FENCE_CREATE_SIGNALED_BIT);
-	fence->fence = device->ws->create_fence();
+	fence->fence = device->ws->create_fence(device->ws);
 	if (!fence->fence) {
 		vk_free2(&device->alloc, pAllocator, fence);
 		return VK_ERROR_OUT_OF_HOST_MEMORY;

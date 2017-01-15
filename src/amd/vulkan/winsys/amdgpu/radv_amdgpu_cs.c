@@ -88,7 +88,7 @@ static void radv_amdgpu_request_to_fence(struct radv_amdgpu_ctx *ctx,
 	fence->fence = req->seq_no;
 }
 
-static struct radeon_winsys_fence *radv_amdgpu_create_fence()
+static struct radeon_winsys_fence *radv_amdgpu_create_fence(struct radeon_winsys *ws)
 {
 	struct radv_amdgpu_cs_fence *fence = calloc(1, sizeof(struct amdgpu_cs_fence));
 	return (struct radeon_winsys_fence*)fence;

@@ -1958,6 +1958,47 @@ static void calculate_ps_inputs(struct radv_pipeline *pipeline)
 	pipeline->graphics.ps_input_cntl_num = ps_offset;
 }
 
+static
+void radv_create_shaders(struct radv_pipeline *pipeline,
+                         struct radv_device *device,
+                         struct radv_pipeline_cache *cache,
+                         union ac_shader_variant_key *keys,
+                         const VkPipelineShaderStageCreateInfo **pStages)
+{
+	struct radv_shader_module fs_m = {0};
+	struct radv_shader_module *modules[MESA_SHADER_STAGES] = { 0, };
+
+	for (unsigned i = 0; i < MESA_SHADER_STAGES; ++i) {
+		if (pStages[i])
+			modules[i] = radv_shader_module_from_handle(pStages[i]->module);
+	}
+
+	if (!modules[MESA_SHADER_FRAGMENT] && modules[MESA_SHADER_VERTEX]) {
+		nir_builder fs_b;
+		nir_builder_init_simple_shader(&fs_b, NULL, MESA_SHADER_FRAGMENT, NULL);
+		fs_b.shader->info.name = ralloc_strdup(fs_b.shader, "noop_fs");
+		fs_m.nir = fs_b.shader;
+		modules[MESA_SHADER_FRAGMENT] = &fs_m;
+	}
+
+	for (unsigned i = 0; i < MESA_SHADER_STAGES; ++i) {
+		const VkPipelineShaderStageCreateInfo *stage = pStages[i];
+
+		if (!stage)
+			continue;
+
+		pipeline->shaders[i] =
+			 radv_pipeline_compile(pipeline, cache, modules[i],
+					       stage ? stage->pName : "main", i,
+					       stage ? stage->pSpecializationInfo : NULL,
+					       pipeline->layout, keys ? &keys[i] : NULL);
+		pipeline->active_stages |= mesa_to_vk_shader_stage(i);
+	}
+
+	if (fs_m.nir)
+		ralloc_free(fs_m.nir);
+}
+
 VkResult
 radv_pipeline_init(struct radv_pipeline *pipeline,
 		   struct radv_device *device,
@@ -1966,7 +2007,6 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 		   const struct radv_graphics_pipeline_create_info *extra,
 		   const VkAllocationCallbacks *alloc)
 {
-	struct radv_shader_module fs_m = {0};
 	VkResult result;
 
 	if (alloc == NULL)
@@ -1976,94 +2016,40 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	pipeline->layout = radv_pipeline_layout_from_handle(pCreateInfo->layout);
 
 	radv_pipeline_init_dynamic_state(pipeline, pCreateInfo);
+	radv_pipeline_init_blend_state(pipeline, pCreateInfo, extra);
+
+	union ac_shader_variant_key keys[MESA_SHADER_STAGES];
 	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
-	struct radv_shader_module *modules[MESA_SHADER_STAGES] = { 0, };
 	for (uint32_t i = 0; i < pCreateInfo->stageCount; i++) {
 		gl_shader_stage stage = ffs(pCreateInfo->pStages[i].stage) - 1;
 		pStages[stage] = &pCreateInfo->pStages[i];
-		modules[stage] = radv_shader_module_from_handle(pStages[stage]->module);
 	}
 
-	radv_pipeline_init_blend_state(pipeline, pCreateInfo, extra);
+	memset(keys, 0, sizeof(keys));
 
-	if (modules[MESA_SHADER_VERTEX]) {
+	if (pStages[MESA_SHADER_VERTEX]) {
 		bool as_es = false;
 		bool as_ls = false;
-		if (modules[MESA_SHADER_TESS_CTRL])
+		if (pStages[MESA_SHADER_TESS_CTRL])
 			as_ls = true;
-		else if (modules[MESA_SHADER_GEOMETRY])
+		else if (pStages[MESA_SHADER_GEOMETRY])
 			as_es = true;
-		union ac_shader_variant_key key = radv_compute_vs_key(pCreateInfo, as_es, as_ls);
-
-		pipeline->shaders[MESA_SHADER_VERTEX] =
-			 radv_pipeline_compile(pipeline, cache, modules[MESA_SHADER_VERTEX],
-					       pStages[MESA_SHADER_VERTEX]->pName,
-					       MESA_SHADER_VERTEX,
-					       pStages[MESA_SHADER_VERTEX]->pSpecializationInfo,
-					       pipeline->layout, &key);
-
-		pipeline->active_stages |= mesa_to_vk_shader_stage(MESA_SHADER_VERTEX);
+		keys[MESA_SHADER_VERTEX] = radv_compute_vs_key(pCreateInfo, as_es, as_ls);
 	}
 
-	if (modules[MESA_SHADER_GEOMETRY]) {
-		union ac_shader_variant_key key = radv_compute_vs_key(pCreateInfo, false, false);
-
-		pipeline->shaders[MESA_SHADER_GEOMETRY] =
-			 radv_pipeline_compile(pipeline, cache, modules[MESA_SHADER_GEOMETRY],
-					       pStages[MESA_SHADER_GEOMETRY]->pName,
-					       MESA_SHADER_GEOMETRY,
-					       pStages[MESA_SHADER_GEOMETRY]->pSpecializationInfo,
-					       pipeline->layout, &key);
-
-		pipeline->active_stages |= mesa_to_vk_shader_stage(MESA_SHADER_GEOMETRY);
-
-		pipeline->graphics.vgt_gs_mode = si_vgt_gs_mode(pipeline->shaders[MESA_SHADER_GEOMETRY]);
-	} else
-		pipeline->graphics.vgt_gs_mode = 0;
-
-	if (modules[MESA_SHADER_TESS_EVAL]) {
-		assert(modules[MESA_SHADER_TESS_CTRL]);
-
-		radv_tess_pipeline_compile(pipeline,
-					   cache,
-					   modules[MESA_SHADER_TESS_CTRL],
-					   modules[MESA_SHADER_TESS_EVAL],
-					   pStages[MESA_SHADER_TESS_CTRL]->pName,
-					   pStages[MESA_SHADER_TESS_EVAL]->pName,
-					   pStages[MESA_SHADER_TESS_CTRL]->pSpecializationInfo,
-					   pStages[MESA_SHADER_TESS_EVAL]->pSpecializationInfo,
-					   pipeline->layout,
-					   pCreateInfo->pTessellationState->patchControlPoints);
-		pipeline->active_stages |= mesa_to_vk_shader_stage(MESA_SHADER_TESS_EVAL) |
-			mesa_to_vk_shader_stage(MESA_SHADER_TESS_CTRL);
+	if (pStages[MESA_SHADER_GEOMETRY]) {
+		keys[MESA_SHADER_GEOMETRY] = radv_compute_vs_key(pCreateInfo, false, false);
 	}
 
-	if (!modules[MESA_SHADER_FRAGMENT]) {
-		nir_builder fs_b;
-		nir_builder_init_simple_shader(&fs_b, NULL, MESA_SHADER_FRAGMENT, NULL);
-		fs_b.shader->info.name = ralloc_strdup(fs_b.shader, "noop_fs");
-		fs_m.nir = fs_b.shader;
-		modules[MESA_SHADER_FRAGMENT] = &fs_m;
-	}
+	keys[MESA_SHADER_TESS_EVAL].tes.as_es = !!pStages[MESA_SHADER_GEOMETRY];
+	if (pCreateInfo->pTessellationState)
+		keys[MESA_SHADER_TESS_CTRL].tcs.input_vertices = pCreateInfo->pTessellationState->patchControlPoints;
+	/* Not setting key[MESA_SHADER_TESS_CTRL].tcs.primitive_mode as it depends on tes variant */
 
-	if (modules[MESA_SHADER_FRAGMENT]) {
-		union ac_shader_variant_key key;
-		key.fs.col_format = pipeline->graphics.blend.spi_shader_col_format;
-		key.fs.is_int8 = radv_pipeline_compute_is_int8(pCreateInfo);
+	keys[MESA_SHADER_FRAGMENT].fs.col_format = pipeline->graphics.blend.spi_shader_col_format;
+	keys[MESA_SHADER_FRAGMENT].fs.is_int8 = radv_pipeline_compute_is_int8(pCreateInfo);
 
-		const VkPipelineShaderStageCreateInfo *stage = pStages[MESA_SHADER_FRAGMENT];
-
-		pipeline->shaders[MESA_SHADER_FRAGMENT] =
-			 radv_pipeline_compile(pipeline, cache, modules[MESA_SHADER_FRAGMENT],
-					       stage ? stage->pName : "main",
-					       MESA_SHADER_FRAGMENT,
-					       stage ? stage->pSpecializationInfo : NULL,
-					       pipeline->layout, &key);
-		pipeline->active_stages |= mesa_to_vk_shader_stage(MESA_SHADER_FRAGMENT);
-	}
-
-	if (fs_m.nir)
-		ralloc_free(fs_m.nir);
+	radv_create_shaders(pipeline, device, cache, keys, pStages);
 
 	radv_pipeline_init_depth_stencil_state(pipeline, pCreateInfo, extra);
 	radv_pipeline_init_raster_state(pipeline, pCreateInfo);
@@ -2154,8 +2140,11 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 			S_028B54_VS_EN(V_028B54_VS_STAGE_COPY_SHADER);
 	pipeline->graphics.vgt_shader_stages_en = stages;
 
-	if (radv_pipeline_has_gs(pipeline))
+	if (radv_pipeline_has_gs(pipeline)) {
+		pipeline->graphics.vgt_gs_mode = si_vgt_gs_mode(pipeline->shaders[MESA_SHADER_GEOMETRY]);
 		calculate_gs_ring_sizes(pipeline);
+	} else
+		pipeline->graphics.vgt_gs_mode = 0;
 
 	if (radv_pipeline_has_tess(pipeline)) {
 		if (pipeline->graphics.prim == V_008958_DI_PT_PATCH) {
@@ -2274,7 +2263,7 @@ static VkResult radv_compute_pipeline_create(
 {
 	RADV_FROM_HANDLE(radv_device, device, _device);
 	RADV_FROM_HANDLE(radv_pipeline_cache, cache, _cache);
-	RADV_FROM_HANDLE(radv_shader_module, module, pCreateInfo->stage.module);
+	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
 	struct radv_pipeline *pipeline;
 	VkResult result;
 
@@ -2287,12 +2276,8 @@ static VkResult radv_compute_pipeline_create(
 	pipeline->device = device;
 	pipeline->layout = radv_pipeline_layout_from_handle(pCreateInfo->layout);
 
-	pipeline->shaders[MESA_SHADER_COMPUTE] =
-		 radv_pipeline_compile(pipeline, cache, module,
-				       pCreateInfo->stage.pName,
-				       MESA_SHADER_COMPUTE,
-				       pCreateInfo->stage.pSpecializationInfo,
-				       pipeline->layout, NULL);
+	pStages[MESA_SHADER_COMPUTE] = &pCreateInfo->stage;
+	radv_create_shaders(pipeline, device, cache, NULL, pStages);
 
 
 	pipeline->need_indirect_descriptor_sets |= pipeline->shaders[MESA_SHADER_COMPUTE]->info.need_indirect_descriptor_sets;
@@ -2309,6 +2294,7 @@ static VkResult radv_compute_pipeline_create(
 	}
 	return VK_SUCCESS;
 }
+
 VkResult radv_CreateComputePipelines(
 	VkDevice                                    _device,
 	VkPipelineCache                             pipelineCache,

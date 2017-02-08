@@ -172,6 +172,7 @@ radv_optimize_nir(struct nir_shader *shader)
                         NIR_PASS(progress, shader, nir_opt_loop_unroll, 0);
                 }
         } while (progress);
+	nir_lower_global_vars_to_local(shader);
 }
 
 static nir_shader *
@@ -1958,6 +1959,39 @@ static void calculate_ps_inputs(struct radv_pipeline *pipeline)
 	pipeline->graphics.ps_input_cntl_num = ps_offset;
 }
 
+static void
+radv_link_shaders(struct radv_pipeline *pipeline, nir_shader **shaders)
+{
+	nir_shader* consumer = shaders[MESA_SHADER_FRAGMENT];
+
+	if (shaders[MESA_SHADER_GEOMETRY]) {
+		nir_remove_unused_varyings(shaders[MESA_SHADER_GEOMETRY], consumer);
+		nir_compact_varyings(shaders[MESA_SHADER_GEOMETRY], consumer);
+		radv_optimize_nir(shaders[MESA_SHADER_GEOMETRY]);
+		consumer = shaders[MESA_SHADER_GEOMETRY];
+	}
+
+	if (shaders[MESA_SHADER_TESS_EVAL]) {
+		nir_lower_tes_patch_vertices(shaders[MESA_SHADER_TESS_EVAL],
+				     shaders[MESA_SHADER_TESS_CTRL]->info.tess.tcs_vertices_out);
+
+		nir_remove_unused_varyings(shaders[MESA_SHADER_TESS_EVAL], consumer);
+		nir_compact_varyings(shaders[MESA_SHADER_TESS_EVAL], consumer);
+		radv_optimize_nir(shaders[MESA_SHADER_TESS_EVAL]);
+		consumer = shaders[MESA_SHADER_TESS_EVAL];
+
+		nir_remove_unused_varyings(shaders[MESA_SHADER_TESS_CTRL], consumer);
+		nir_compact_varyings(shaders[MESA_SHADER_TESS_CTRL], consumer);
+		radv_optimize_nir(shaders[MESA_SHADER_TESS_CTRL]);
+		consumer = shaders[MESA_SHADER_TESS_CTRL];
+	}
+
+	nir_remove_unused_varyings(shaders[MESA_SHADER_VERTEX], consumer);
+	nir_compact_varyings(shaders[MESA_SHADER_VERTEX], consumer);
+	radv_optimize_nir(shaders[MESA_SHADER_VERTEX]);
+	radv_optimize_nir(shaders[MESA_SHADER_FRAGMENT]);
+}
+
 static
 void radv_create_shaders(struct radv_pipeline *pipeline,
                          struct radv_device *device,
@@ -2005,7 +2039,14 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 		                                    stage ? stage->pName : "main", i,
 		                                    stage ? stage->pSpecializationInfo : NULL, dump);
 		pipeline->active_stages |= mesa_to_vk_shader_stage(i);
+		nir_remove_unwritten_outputs(nir[i]);
 	}
+
+	if (nir[MESA_SHADER_TESS_CTRL])
+		keys[MESA_SHADER_TESS_CTRL].tcs.primitive_mode = nir[MESA_SHADER_TESS_EVAL]->info.tess.primitive_mode;
+
+	if (modules[MESA_SHADER_VERTEX])
+		radv_link_shaders(pipeline, nir);
 
 	for (int i = 0; i < MESA_SHADER_STAGES; ++i) {
 		if(modules[i]) {

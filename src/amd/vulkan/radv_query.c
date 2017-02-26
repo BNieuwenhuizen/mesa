@@ -442,9 +442,7 @@ VkResult radv_CreateQueryPool(
 
 	switch(pCreateInfo->queryType) {
 	case VK_QUERY_TYPE_OCCLUSION:
-		/* 16 bytes tmp. buffer as the compute packet writes 64 bits, but
-		 * the app. may have 32 bits of space. */
-		pool->stride = 16 * get_max_db(device) + 16;
+		pool->stride = 16 * get_max_db(device);
 		break;
 	case VK_QUERY_TYPE_PIPELINE_STATISTICS:
 		pool->stride = 16 * 11;
@@ -739,7 +737,6 @@ void radv_CmdEndQuery(
 	RADV_FROM_HANDLE(radv_query_pool, pool, queryPool);
 	struct radeon_winsys_cs *cs = cmd_buffer->cs;
 	uint64_t va = cmd_buffer->device->ws->buffer_get_va(pool->bo);
-	uint64_t avail_va = va + pool->availability_offset + 4 * query;
 	va += pool->stride * query;
 
 	cmd_buffer->device->ws->cs_add_buffer(cs, pool->bo, 8);
@@ -770,16 +767,6 @@ void radv_CmdEndQuery(
 	default:
 		unreachable("ending unhandled query type");
 	}
-
-	radeon_check_space(cmd_buffer->device->ws, cs, 5);
-
-	radeon_emit(cs, PKT3(PKT3_WRITE_DATA, 3, 0));
-	radeon_emit(cs, S_370_DST_SEL(V_370_MEMORY_SYNC) |
-		    S_370_WR_CONFIRM(1) |
-		    S_370_ENGINE_SEL(V_370_ME));
-	radeon_emit(cs, avail_va);
-	radeon_emit(cs, avail_va >> 32);
-	radeon_emit(cs, 1);
 }
 
 void radv_CmdWriteTimestamp(

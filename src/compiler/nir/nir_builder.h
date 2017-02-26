@@ -252,6 +252,18 @@ nir_imm_int(nir_builder *build, int x)
    return nir_build_imm(build, 1, 32, v);
 }
 
+
+static inline nir_ssa_def *
+nir_imm_int64(nir_builder *build, int64_t x)
+{
+   nir_const_value v;
+
+   memset(&v, 0, sizeof(v));
+   v.i64[0] = x;
+
+   return nir_build_imm(build, 1, 64, v);
+}
+
 static inline nir_ssa_def *
 nir_imm_int64(nir_builder *build, int64_t x)
 {

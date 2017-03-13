@@ -34,27 +34,68 @@
 #include <amdgpu_drm.h>
 #include <inttypes.h>
 
+static struct radeon_winsys_bo *
+radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
+			     uint64_t size,
+			     unsigned alignment,
+			     enum radeon_bo_heap heap);
+
+static void *
+radv_amdgpu_winsys_bo_map(struct radeon_winsys_bo *_bo);
+
+static void
+radv_amdgpu_winsys_bo_drm_deinit(struct radv_amdgpu_winsys_bo_drm *bo)
+{
+	if (bo->base.ws->debug_all_bos) {
+		pthread_mutex_lock(&bo->base.ws->global_bo_list_lock);
+		LIST_DEL(&bo->global_list_item);
+		bo->base.ws->num_buffers--;
+		pthread_mutex_unlock(&bo->base.ws->global_bo_list_lock);
+	}
+	amdgpu_bo_va_op(bo->base.bo, 0, bo->base.size, bo->base.va, 0, AMDGPU_VA_OP_UNMAP);
+	amdgpu_va_range_free(bo->va_handle);
+	amdgpu_bo_free(bo->base.bo);
+}
+
+
+static void
+radv_amdgpu_winsys_bo_drm_destroy(struct radv_amdgpu_winsys_bo_drm *bo)
+{
+	radv_amdgpu_winsys_bo_drm_deinit(bo);
+	FREE(bo);
+}
+
+static void
+radv_amdgpu_winsys_bo_slab_entry_destroy(struct radv_amdgpu_winsys_bo_slab_entry *bo)
+{
+	mtx_lock(&bo->base.ws->slab_mtx);
+	list_add(&bo->slab_entry_list, &bo->base.ws->slab_entries[bo->base.slab->heap][bo->base.slab->size_shift]);
+	mtx_unlock(&bo->base.ws->slab_mtx);
+}
+
 static void radv_amdgpu_winsys_bo_destroy(struct radeon_winsys_bo *_bo)
 {
 	struct radv_amdgpu_winsys_bo *bo = radv_amdgpu_winsys_bo(_bo);
 
-	if (bo->ws->debug_all_bos) {
-		pthread_mutex_lock(&bo->ws->global_bo_list_lock);
-		LIST_DEL(&bo->global_list_item);
-		bo->ws->num_buffers--;
-		pthread_mutex_unlock(&bo->ws->global_bo_list_lock);
+	if (bo->slab) {
+		radv_amdgpu_winsys_bo_slab_entry_destroy((struct radv_amdgpu_winsys_bo_slab_entry*)bo);
+	} else {
+		radv_amdgpu_winsys_bo_drm_destroy((struct radv_amdgpu_winsys_bo_drm*)bo);
 	}
-	amdgpu_bo_va_op(bo->bo, 0, bo->size, bo->va, 0, AMDGPU_VA_OP_UNMAP);
-	amdgpu_va_range_free(bo->va_handle);
-	amdgpu_bo_free(bo->bo);
-	FREE(bo);
 }
 
-static void radv_amdgpu_add_buffer_to_global_list(struct radv_amdgpu_winsys_bo *bo)
+static void radv_amdgpu_winsys_slab_destroy(struct radv_amdgpu_winsys_slab *slab)
 {
-	struct radv_amdgpu_winsys *ws = bo->ws;
+	radv_amdgpu_winsys_bo_destroy((struct radeon_winsys_bo*)slab->base);
+	free(slab);
+}
 
-	if (bo->ws->debug_all_bos) {
+
+static void radv_amdgpu_add_buffer_to_global_list(struct radv_amdgpu_winsys_bo_drm *bo)
+{
+	struct radv_amdgpu_winsys *ws = bo->base.ws;
+
+	if (ws->debug_all_bos) {
 		pthread_mutex_lock(&ws->global_bo_list_lock);
 		LIST_ADDTAIL(&bo->global_list_item, &ws->global_bo_list);
 		ws->num_buffers++;
@@ -62,23 +103,18 @@ static void radv_amdgpu_add_buffer_to_global_list(struct radv_amdgpu_winsys_bo *
 	}
 }
 
-static struct radeon_winsys_bo *
-radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
-			     uint64_t size,
-			     unsigned alignment,
-			     enum radeon_bo_heap heap)
+static int
+radv_amdgpu_winsys_bo_drm_init(struct radv_amdgpu_winsys *ws,
+                               uint64_t size,
+                               unsigned alignment,
+                               enum radeon_bo_heap heap,
+                               struct radv_amdgpu_winsys_bo_drm *bo)
 {
-	struct radv_amdgpu_winsys *ws = radv_amdgpu_winsys(_ws);
-	struct radv_amdgpu_winsys_bo *bo;
 	struct amdgpu_bo_alloc_request request = {0};
 	amdgpu_bo_handle buf_handle;
 	uint64_t va = 0;
 	amdgpu_va_handle va_handle;
 	int r;
-	bo = CALLOC_STRUCT(radv_amdgpu_winsys_bo);
-	if (!bo) {
-		return NULL;
-	}
 
 	request.alloc_size = size;
 	request.phys_alignment = alignment;
@@ -113,14 +149,15 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
 	if (r)
 		goto error_va_map;
 
-	bo->bo = buf_handle;
-	bo->va = va;
+	bo->base.bo = buf_handle;
+	bo->base.va = va;
 	bo->va_handle = va_handle;
-	bo->size = size;
+	bo->base.size = size;
 	bo->is_shared = false;
-	bo->ws = ws;
+	bo->base.ws = ws;
+	bo->base.slab = NULL;
 	radv_amdgpu_add_buffer_to_global_list(bo);
-	return (struct radeon_winsys_bo *)bo;
+	return 0;
 error_va_map:
 	amdgpu_va_range_free(va_handle);
 
@@ -129,7 +166,132 @@ error_va_alloc:
 
 error_bo_alloc:
 	FREE(bo);
-	return NULL;
+	return r;
+}
+
+static struct radeon_winsys_bo *
+radv_amdgpu_winsys_bo_drm_create(struct radv_amdgpu_winsys *ws,
+			     uint64_t size,
+			     unsigned alignment,
+			     enum radeon_bo_heap heap)
+{
+	struct radv_amdgpu_winsys_bo_drm *bo;
+	int r;
+	bo = CALLOC_STRUCT(radv_amdgpu_winsys_bo_drm);
+	if (!bo) {
+		return NULL;
+	}
+
+	r = radv_amdgpu_winsys_bo_drm_init(ws, size, alignment, heap, bo);
+	if (r) {
+		FREE(bo);
+		return NULL;
+	}
+	return (struct radeon_winsys_bo *)bo;
+}
+
+static struct radv_amdgpu_winsys_slab *
+radv_amdgpu_winsys_slab_create(struct radv_amdgpu_winsys *ws,
+			     enum radeon_bo_heap heap,
+			     int size_shift)
+{
+	struct radv_amdgpu_winsys_slab *slab;
+	uint64_t elem_size = 1u << size_shift;
+	int32_t elem_count;
+	uint64_t size, alignment;
+
+	if (elem_size <= 16384)
+		size = 65536;
+	else if (elem_size <= 256 * 1024)
+		size = 1024 * 1024;
+	else
+		size = 4 * 1024 * 1024;
+
+	elem_count = size / elem_size;
+	alignment = MIN2(elem_size, 256 * 1024);
+
+	slab = calloc(1, sizeof(struct radv_amdgpu_winsys_slab) +
+	              sizeof(struct radv_amdgpu_winsys_bo_slab_entry) * elem_count);
+	if (!slab) {
+		return NULL;
+	}
+
+	slab->base = (struct radv_amdgpu_winsys_bo*)radv_amdgpu_winsys_bo_create(
+	                                        (struct radeon_winsys*)ws, size,
+	                                        alignment, heap);
+	if (!slab->base) {
+		free(slab);
+		return NULL;
+	}
+
+	slab->heap = heap;
+	slab->size_shift = size_shift;
+	if (heap != RADEON_HEAP_VRAM) {
+		slab->mapped_ptr = (char*)radv_amdgpu_winsys_bo_map((struct radeon_winsys_bo*)slab->base);
+		if (!slab->mapped_ptr) {
+			radv_amdgpu_winsys_bo_destroy((struct radeon_winsys_bo*)slab);
+			free(slab);
+			return NULL;
+		}
+	}
+
+	mtx_lock(&ws->slab_mtx);
+	list_add(&slab->slabs, &ws->slabs);
+	for(int32_t i = 0; i < elem_count; ++i) {
+		slab->entries[i].base.bo = slab->base->bo;
+		slab->entries[i].base.va = slab->base->va + ((uint64_t)i << size_shift);
+		slab->entries[i].base.size = 1ull << size_shift;
+		slab->entries[i].base.ws = ws;
+		slab->entries[i].base.slab = slab;
+		list_add(&slab->entries[i].slab_entry_list, &ws->slab_entries[heap][size_shift]);
+	}
+	mtx_unlock(&ws->slab_mtx);
+
+	return slab;
+}
+
+static struct radeon_winsys_bo *
+radv_amdgpu_winsys_bo_slab_entry_create(struct radv_amdgpu_winsys *ws,
+			     uint64_t size,
+			     unsigned alignment,
+			     enum radeon_bo_heap heap)
+{
+	int size_shift;
+
+	size = MAX2(size, alignment);
+	size_shift = 64 - __builtin_clzll(size);
+
+	mtx_lock(&ws->slab_mtx);
+	for (;;) {
+		if (!list_empty(&ws->slab_entries[heap][size_shift])) {
+			struct radv_amdgpu_winsys_bo_slab_entry *bo = list_first_entry((&ws->slab_entries[heap][size_shift]), struct radv_amdgpu_winsys_bo_slab_entry, slab_entry_list);
+			list_del(&bo->slab_entry_list);
+			mtx_unlock(&ws->slab_mtx);
+			assert(bo->base.size >= size);
+			return (struct radeon_winsys_bo *)bo;
+		}
+		mtx_unlock(&ws->slab_mtx);
+
+		if(!radv_amdgpu_winsys_slab_create(ws, heap, size_shift)) {
+			return NULL;
+		}
+		mtx_lock(&ws->slab_mtx);
+	}
+}
+
+static struct radeon_winsys_bo *
+radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
+			     uint64_t size,
+			     unsigned alignment,
+			     enum radeon_bo_heap heap)
+{
+	struct radv_amdgpu_winsys *ws = radv_amdgpu_winsys(_ws);
+
+	if (MAX2(size, alignment) <= 1024 * 1024) {
+		return radv_amdgpu_winsys_bo_slab_entry_create(ws, size, alignment, heap);
+	} else {
+		return radv_amdgpu_winsys_bo_drm_create(ws, size, alignment, heap);
+	}
 }
 
 static uint64_t radv_amdgpu_winsys_bo_get_va(struct radeon_winsys_bo *_bo)
@@ -144,6 +306,10 @@ radv_amdgpu_winsys_bo_map(struct radeon_winsys_bo *_bo)
 	struct radv_amdgpu_winsys_bo *bo = radv_amdgpu_winsys_bo(_bo);
 	int ret;
 	void *data;
+
+	if (bo->slab)
+		return bo->slab->mapped_ptr + (bo->va - bo->slab->base->va);
+
 	ret = amdgpu_bo_cpu_map(bo->bo, &data);
 	if (ret)
 		return NULL;
@@ -154,7 +320,8 @@ static void
 radv_amdgpu_winsys_bo_unmap(struct radeon_winsys_bo *_bo)
 {
 	struct radv_amdgpu_winsys_bo *bo = radv_amdgpu_winsys_bo(_bo);
-	amdgpu_bo_cpu_unmap(bo->bo);
+	if (!bo->slab)
+		amdgpu_bo_cpu_unmap(bo->bo);
 }
 
 static struct radeon_winsys_bo *
@@ -163,7 +330,7 @@ radv_amdgpu_winsys_bo_from_fd(struct radeon_winsys *_ws,
 			      unsigned *offset)
 {
 	struct radv_amdgpu_winsys *ws = radv_amdgpu_winsys(_ws);
-	struct radv_amdgpu_winsys_bo *bo;
+	struct radv_amdgpu_winsys_bo_drm *bo;
 	uint64_t va;
 	amdgpu_va_handle va_handle;
 	enum amdgpu_bo_handle_type type = amdgpu_bo_handle_type_dma_buf_fd;
@@ -171,7 +338,7 @@ radv_amdgpu_winsys_bo_from_fd(struct radeon_winsys *_ws,
 	struct amdgpu_bo_info info = {0};
 	enum radeon_bo_domain initial = 0;
 	int r;
-	bo = CALLOC_STRUCT(radv_amdgpu_winsys_bo);
+	bo = CALLOC_STRUCT(radv_amdgpu_winsys_bo_drm);
 	if (!bo)
 		return NULL;
 
@@ -197,12 +364,13 @@ radv_amdgpu_winsys_bo_from_fd(struct radeon_winsys *_ws,
 	if (info.preferred_heap & AMDGPU_GEM_DOMAIN_GTT)
 		initial |= RADEON_DOMAIN_GTT;
 
-	bo->bo = result.buf_handle;
-	bo->va = va;
+	bo->base.bo = result.buf_handle;
+	bo->base.va = va;
 	bo->va_handle = va_handle;
-	bo->size = result.alloc_size;
+	bo->base.size = result.alloc_size;
 	bo->is_shared = true;
-	bo->ws = ws;
+	bo->base.ws = ws;
+	bo->base.slab = NULL;
 	radv_amdgpu_add_buffer_to_global_list(bo);
 	return (struct radeon_winsys_bo *)bo;
 error_va_map:
@@ -225,12 +393,14 @@ radv_amdgpu_winsys_get_fd(struct radeon_winsys *_ws,
 	enum amdgpu_bo_handle_type type = amdgpu_bo_handle_type_dma_buf_fd;
 	int r;
 	unsigned handle;
+	assert(!bo->slab);
+
 	r = amdgpu_bo_export(bo->bo, type, &handle);
 	if (r)
 		return false;
 
 	*fd = (int)handle;
-	bo->is_shared = true;
+	((struct radv_amdgpu_winsys_bo_drm *)bo)->is_shared = true;
 	return true;
 }
 
@@ -280,7 +450,14 @@ radv_amdgpu_winsys_bo_set_metadata(struct radeon_winsys_bo *_bo,
 	metadata.size_metadata = md->size_metadata;
 	memcpy(metadata.umd_metadata, md->metadata, sizeof(md->metadata));
 
+	assert(!bo->slab);
 	amdgpu_bo_set_metadata(bo->bo, &metadata);
+}
+
+void radv_amdgpu_winsys_free_slabs(struct radv_amdgpu_winsys *ws) {
+	list_for_each_entry_safe(struct radv_amdgpu_winsys_slab, slab, &ws->slabs, slabs) {
+		radv_amdgpu_winsys_slab_destroy(slab);
+	}
 }
 
 void radv_amdgpu_bo_init_functions(struct radv_amdgpu_winsys *ws)

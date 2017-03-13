@@ -343,6 +343,7 @@ static void radv_amdgpu_winsys_destroy(struct radeon_winsys *rws)
 	struct radv_amdgpu_winsys *ws = (struct radv_amdgpu_winsys*)rws;
 
 	AddrDestroy(ws->addrlib);
+	radv_amdgpu_winsys_free_slabs(ws);
 	amdgpu_device_deinitialize(ws->dev);
 	FREE(rws);
 }
@@ -374,6 +375,13 @@ radv_amdgpu_winsys_create(int fd, uint32_t debug_flags)
 
 	LIST_INITHEAD(&ws->global_bo_list);
 	pthread_mutex_init(&ws->global_bo_list_lock, NULL);
+
+	for (int i = 0; i < 4; ++i)
+		for(int j = 0; j < 32; ++j)
+			list_inithead(&ws->slab_entries[i][j]);
+	list_inithead(&ws->slabs);
+	mtx_init(&ws->slab_mtx, mtx_plain);
+
 	ws->base.query_info = radv_amdgpu_winsys_query_info;
 	ws->base.destroy = radv_amdgpu_winsys_destroy;
 	radv_amdgpu_bo_init_functions(ws);

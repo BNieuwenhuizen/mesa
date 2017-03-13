@@ -31,16 +31,38 @@
 
 #include "radv_amdgpu_winsys.h"
 
+struct radv_amdgpu_winsys_slab;
 struct radv_amdgpu_winsys_bo {
 	amdgpu_bo_handle bo;
-	amdgpu_va_handle va_handle;
-
 	uint64_t va;
 	uint64_t size;
-	bool is_shared;
 
 	struct radv_amdgpu_winsys *ws;
+
+	struct radv_amdgpu_winsys_slab *slab;
+};
+
+struct radv_amdgpu_winsys_bo_drm {
+	struct radv_amdgpu_winsys_bo base;
+
+	amdgpu_va_handle va_handle;
+
 	struct list_head global_list_item;
+	bool is_shared;
+};
+
+struct radv_amdgpu_winsys_bo_slab_entry {
+	struct radv_amdgpu_winsys_bo base;
+	struct list_head slab_entry_list;
+};
+
+struct radv_amdgpu_winsys_slab {
+	struct radv_amdgpu_winsys_bo *base;
+	struct list_head slabs;
+	char *mapped_ptr;
+	enum radeon_bo_heap heap;
+	int size_shift;
+	struct radv_amdgpu_winsys_bo_slab_entry entries[];
 };
 
 static inline
@@ -48,6 +70,8 @@ struct radv_amdgpu_winsys_bo *radv_amdgpu_winsys_bo(struct radeon_winsys_bo *bo)
 {
 	return (struct radv_amdgpu_winsys_bo *)bo;
 }
+
+void radv_amdgpu_winsys_free_slabs(struct radv_amdgpu_winsys *ws);
 
 void radv_amdgpu_bo_init_functions(struct radv_amdgpu_winsys *ws);
 

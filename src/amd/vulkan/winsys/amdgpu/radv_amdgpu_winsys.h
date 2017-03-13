@@ -33,6 +33,8 @@
 #include <amdgpu.h>
 #include "util/list.h"
 
+struct radv_amdgpu_winsys_slab;
+
 struct radv_amdgpu_winsys {
 	struct radeon_winsys base;
 	amdgpu_device_handle dev;
@@ -50,6 +52,10 @@ struct radv_amdgpu_winsys {
 	unsigned num_buffers;
 
 	bool use_ib_bos;
+
+	struct list_head slabs;
+	struct list_head slab_entries[4][32];
+	mtx_t slab_mtx;
 };
 
 static inline struct radv_amdgpu_winsys *

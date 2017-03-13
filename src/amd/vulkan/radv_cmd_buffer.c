@@ -246,8 +246,7 @@ radv_cmd_buffer_resize_upload_buf(struct radv_cmd_buffer *cmd_buffer,
 
 	bo = device->ws->buffer_create(device->ws,
 				       new_size, 4096,
-				       RADEON_DOMAIN_GTT,
-				       RADEON_FLAG_CPU_ACCESS);
+				       RADEON_HEAP_GTT);
 
 	if (!bo) {
 		cmd_buffer->record_fail = true;

@@ -431,7 +431,7 @@ VkResult radv_CreateDescriptorPool(
 
 	if (bo_size) {
 		pool->bo = device->ws->buffer_create(device->ws, bo_size,
-							32, RADEON_DOMAIN_VRAM, 0);
+							32, RADEON_HEAP_VRAM_CPU);
 		pool->mapped_ptr = (uint8_t*)device->ws->buffer_map(pool->bo);
 	}
 	pool->size = bo_size;

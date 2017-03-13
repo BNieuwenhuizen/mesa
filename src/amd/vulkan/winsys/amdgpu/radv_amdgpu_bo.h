@@ -36,7 +36,6 @@ struct radv_amdgpu_winsys_bo {
 	amdgpu_va_handle va_handle;
 
 	uint64_t va;
-	enum radeon_bo_domain initial_domain;
 	uint64_t size;
 	bool is_shared;
 

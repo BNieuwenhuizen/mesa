@@ -461,8 +461,7 @@ cik_create_gfx_config(struct radv_device *device)
 
 	device->gfx_init = device->ws->buffer_create(device->ws,
 						     cs->cdw * 4, 4096,
-						     RADEON_DOMAIN_GTT,
-						     RADEON_FLAG_CPU_ACCESS);
+						     RADEON_HEAP_GTT);
 	if (!device->gfx_init)
 		goto fail;
 

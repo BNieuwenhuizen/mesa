@@ -55,6 +55,13 @@ enum radeon_bo_usage { /* bitfield */
 	RADEON_USAGE_READWRITE = RADEON_USAGE_READ | RADEON_USAGE_WRITE
 };
 
+enum radeon_bo_heap {
+	RADEON_HEAP_VRAM,
+	RADEON_HEAP_VRAM_CPU,
+	RADEON_HEAP_GTT,
+	RADEON_HEAP_GTT_WC,
+};
+
 enum ring_type {
 	RING_GFX = 0,
 	RING_COMPUTE,
@@ -269,8 +276,7 @@ struct radeon_winsys {
 	struct radeon_winsys_bo *(*buffer_create)(struct radeon_winsys *ws,
 						  uint64_t size,
 						  unsigned alignment,
-						  enum radeon_bo_domain domain,
-						  enum radeon_bo_flag flags);
+						  enum radeon_bo_heap heap);
 
 	void (*buffer_destroy)(struct radeon_winsys_bo *bo);
 	void *(*buffer_map)(struct radeon_winsys_bo *bo);

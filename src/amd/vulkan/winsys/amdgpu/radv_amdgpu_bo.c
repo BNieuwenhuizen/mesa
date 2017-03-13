@@ -66,8 +66,7 @@ static struct radeon_winsys_bo *
 radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
 			     uint64_t size,
 			     unsigned alignment,
-			     enum radeon_bo_domain initial_domain,
-			     unsigned flags)
+			     enum radeon_bo_heap heap)
 {
 	struct radv_amdgpu_winsys *ws = radv_amdgpu_winsys(_ws);
 	struct radv_amdgpu_winsys_bo *bo;
@@ -84,16 +83,16 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
 	request.alloc_size = size;
 	request.phys_alignment = alignment;
 
-	if (initial_domain & RADEON_DOMAIN_VRAM)
+	if (heap == RADEON_HEAP_VRAM || heap == RADEON_HEAP_VRAM)
 		request.preferred_heap |= AMDGPU_GEM_DOMAIN_VRAM;
-	if (initial_domain & RADEON_DOMAIN_GTT)
+	else
 		request.preferred_heap |= AMDGPU_GEM_DOMAIN_GTT;
 
-	if (flags & RADEON_FLAG_CPU_ACCESS)
+	if (heap != RADEON_HEAP_VRAM)
 		request.flags |= AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED;
-	if (flags & RADEON_FLAG_NO_CPU_ACCESS)
+	else
 		request.flags |= AMDGPU_GEM_CREATE_NO_CPU_ACCESS;
-	if (flags & RADEON_FLAG_GTT_WC)
+	if (heap == RADEON_HEAP_GTT_WC)
 		request.flags |= AMDGPU_GEM_CREATE_CPU_GTT_USWC;
 
 	r = amdgpu_bo_alloc(ws->dev, &request, &buf_handle);
@@ -101,7 +100,7 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
 		fprintf(stderr, "amdgpu: Failed to allocate a buffer:\n");
 		fprintf(stderr, "amdgpu:    size      : %"PRIu64" bytes\n", size);
 		fprintf(stderr, "amdgpu:    alignment : %u bytes\n", alignment);
-		fprintf(stderr, "amdgpu:    domains   : %u\n", initial_domain);
+		fprintf(stderr, "amdgpu:    domains   : %u\n", request.preferred_heap);
 		goto error_bo_alloc;
 	}
 
@@ -117,7 +116,6 @@ radv_amdgpu_winsys_bo_create(struct radeon_winsys *_ws,
 	bo->bo = buf_handle;
 	bo->va = va;
 	bo->va_handle = va_handle;
-	bo->initial_domain = initial_domain;
 	bo->size = size;
 	bo->is_shared = false;
 	bo->ws = ws;
@@ -202,7 +200,6 @@ radv_amdgpu_winsys_bo_from_fd(struct radeon_winsys *_ws,
 	bo->bo = result.buf_handle;
 	bo->va = va;
 	bo->va_handle = va_handle;
-	bo->initial_domain = initial;
 	bo->size = result.alloc_size;
 	bo->is_shared = true;
 	bo->ws = ws;

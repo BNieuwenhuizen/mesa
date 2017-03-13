@@ -951,7 +951,7 @@ VkResult radv_CreateDevice(
 
 	if (getenv("RADV_TRACE_FILE")) {
 		device->trace_bo = device->ws->buffer_create(device->ws, 4096, 8,
-							     RADEON_DOMAIN_VRAM, RADEON_FLAG_CPU_ACCESS);
+							     RADEON_HEAP_VRAM_CPU);
 		if (!device->trace_bo)
 			goto fail;
 
@@ -1231,8 +1231,7 @@ radv_get_preamble_cs(struct radv_queue *queue,
 		scratch_bo = queue->device->ws->buffer_create(queue->device->ws,
 		                                              scratch_size,
 		                                              4096,
-		                                              RADEON_DOMAIN_VRAM,
-		                                              RADEON_FLAG_NO_CPU_ACCESS);
+		                                              RADEON_HEAP_VRAM);
 		if (!scratch_bo)
 			goto fail;
 	} else
@@ -1242,8 +1241,7 @@ radv_get_preamble_cs(struct radv_queue *queue,
 		compute_scratch_bo = queue->device->ws->buffer_create(queue->device->ws,
 		                                                      compute_scratch_size,
 		                                                      4096,
-		                                                      RADEON_DOMAIN_VRAM,
-		                                                      RADEON_FLAG_NO_CPU_ACCESS);
+		                                                      RADEON_HEAP_VRAM);
 		if (!compute_scratch_bo)
 			goto fail;
 
@@ -1254,8 +1252,7 @@ radv_get_preamble_cs(struct radv_queue *queue,
 		esgs_ring_bo = queue->device->ws->buffer_create(queue->device->ws,
 								esgs_ring_size,
 								4096,
-								RADEON_DOMAIN_VRAM,
-								RADEON_FLAG_NO_CPU_ACCESS);
+								RADEON_HEAP_VRAM);
 		if (!esgs_ring_bo)
 			goto fail;
 	} else {
@@ -1267,8 +1264,7 @@ radv_get_preamble_cs(struct radv_queue *queue,
 		gsvs_ring_bo = queue->device->ws->buffer_create(queue->device->ws,
 								gsvs_ring_size,
 								4096,
-								RADEON_DOMAIN_VRAM,
-								RADEON_FLAG_NO_CPU_ACCESS);
+								RADEON_HEAP_VRAM);
 		if (!gsvs_ring_bo)
 			goto fail;
 	} else {
@@ -1288,8 +1284,7 @@ radv_get_preamble_cs(struct radv_queue *queue,
 		descriptor_bo = queue->device->ws->buffer_create(queue->device->ws,
 		                                                 size,
 		                                                 4096,
-		                                                 RADEON_DOMAIN_VRAM,
-		                                                 RADEON_FLAG_CPU_ACCESS);
+		                                                 RADEON_HEAP_VRAM);
 		if (!descriptor_bo)
 			goto fail;
 	} else
@@ -1670,8 +1665,7 @@ VkResult radv_AllocateMemory(
 	RADV_FROM_HANDLE(radv_device, device, _device);
 	struct radv_device_memory *mem;
 	VkResult result;
-	enum radeon_bo_domain domain;
-	uint32_t flags = 0;
+	enum radeon_bo_heap heap;
 	const VkDedicatedAllocationMemoryAllocateInfoNV *dedicate_info = NULL;
 	assert(pAllocateInfo->sType == VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO);
 
@@ -1705,22 +1699,26 @@ VkResult radv_AllocateMemory(
 	}
 
 	uint64_t alloc_size = align_u64(pAllocateInfo->allocationSize, 4096);
-	if (pAllocateInfo->memoryTypeIndex == RADV_MEM_TYPE_GTT_WRITE_COMBINE ||
-	    pAllocateInfo->memoryTypeIndex == RADV_MEM_TYPE_GTT_CACHED)
-		domain = RADEON_DOMAIN_GTT;
-	else
-		domain = RADEON_DOMAIN_VRAM;
+	switch(pAllocateInfo->memoryTypeIndex) {
+		case RADV_MEM_TYPE_VRAM:
+			heap = RADEON_HEAP_VRAM;
+			break;
+		case RADV_MEM_TYPE_VRAM_CPU_ACCESS:
+			heap = RADEON_HEAP_VRAM_CPU;
+			break;
+		case RADV_MEM_TYPE_GTT_CACHED:
+			heap = RADEON_HEAP_GTT; // I don't think this is cached though?
+			break;
+		case RADV_MEM_TYPE_GTT_WRITE_COMBINE:
+			heap = RADEON_HEAP_GTT_WC;
+			break;
+		default:
+			unreachable("unhandled memory type");
+	}
 
-	if (pAllocateInfo->memoryTypeIndex == RADV_MEM_TYPE_VRAM)
-		flags |= RADEON_FLAG_NO_CPU_ACCESS;
-	else
-		flags |= RADEON_FLAG_CPU_ACCESS;
-
-	if (pAllocateInfo->memoryTypeIndex == RADV_MEM_TYPE_GTT_WRITE_COMBINE)
-		flags |= RADEON_FLAG_GTT_WC;
 
 	mem->bo = device->ws->buffer_create(device->ws, alloc_size, 65536,
-					       domain, flags);
+					    heap);
 
 	if (!mem->bo) {
 		result = VK_ERROR_OUT_OF_DEVICE_MEMORY;
@@ -2066,8 +2064,7 @@ VkResult radv_CreateEvent(
 		return VK_ERROR_OUT_OF_HOST_MEMORY;
 
 	event->bo = device->ws->buffer_create(device->ws, 8, 8,
-					      RADEON_DOMAIN_GTT,
-					      RADEON_FLAG_CPU_ACCESS);
+					      RADEON_HEAP_GTT);
 	if (!event->bo) {
 		vk_free2(&device->alloc, pAllocator, event);
 		return VK_ERROR_OUT_OF_DEVICE_MEMORY;

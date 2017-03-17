@@ -965,8 +965,8 @@ static void radv_amdgpu_winsys_cs_dump(struct radeon_winsys_cs *_cs,
 
 	ac_parse_ib(file,
 		    radv_amdgpu_winsys_get_cpu_addr(cs, cs->ib.ib_mc_address),
-		    cs->ib.size, trace_id,  "main IB", cs->ws->info.chip_class,
-		    radv_amdgpu_winsys_get_cpu_addr, cs);
+		    cs->ib.size, (const int*)&trace_id, 1,  "main IB",
+		    cs->ws->info.chip_class, radv_amdgpu_winsys_get_cpu_addr, cs);
 }
 
 static struct radeon_winsys_ctx *radv_amdgpu_ctx_create(struct radeon_winsys *_ws)

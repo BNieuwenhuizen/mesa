@@ -140,7 +140,9 @@ static void ac_parse_set_reg_packet(FILE *f, uint32_t *ib, unsigned count,
 }
 
 static uint32_t *ac_parse_packet3(FILE *f, uint32_t *ib, int *num_dw,
-				  int trace_id, enum chip_class chip_class,
+				  const int *trace_ids, unsigned trace_id_count,
+				  int *current_trace_id,
+				  enum chip_class chip_class,
 				  ac_debug_addr_callback addr_callback,
 				  void *addr_callback_data)
 {
@@ -266,11 +268,19 @@ static uint32_t *ac_parse_packet3(FILE *f, uint32_t *ib, int *num_dw,
 			uint64_t addr = ((uint64_t)ib[2] << 32) | ib[1];
 			void *data = addr_callback(addr_callback_data, addr);
 			const char *name = G_3F2_CHAIN(ib[3]) ? "chained" : "nested";
+			int trace_offset = G_3F2_CHAIN(ib[3]) ? 0 : 1;
+			const int *nested_trace_ids = trace_ids + trace_offset;
+			int nested_trace_id_count = 0;
+
+			if (trace_id_count && *current_trace_id == *trace_ids) {
+				nested_trace_id_count = trace_id_count - trace_offset;
+			}
 
 			if (data)
-				ac_parse_ib(f, data,  G_3F2_IB_SIZE(ib[3]),
-					    trace_id, name, chip_class,
-					    addr_callback, addr_callback_data);
+				ac_parse_ib(f, data, G_3F2_IB_SIZE(ib[3]),
+					    nested_trace_ids, nested_trace_id_count,
+					    name, chip_class, addr_callback,
+					    addr_callback_data);
 		}
 		break;
 	case PKT3_CLEAR_STATE:
@@ -287,20 +297,22 @@ static uint32_t *ac_parse_packet3(FILE *f, uint32_t *ib, int *num_dw,
 			print_spaces(f, INDENT_PKT);
 			fprintf(f, COLOR_RED "Trace point ID: %u\n", packet_id);
 
-			if (trace_id == -1)
+			*current_trace_id = packet_id;
+
+			if (!trace_id_count)
 				break; /* tracing was disabled */
 
 			print_spaces(f, INDENT_PKT);
-			if (packet_id < trace_id)
+			if (packet_id < *trace_ids)
 				fprintf(f, COLOR_RED
 					"This trace point was reached by the CP."
 					COLOR_RESET "\n");
-			else if (packet_id == trace_id)
+			else if (packet_id == *trace_ids)
 				fprintf(f, COLOR_RED
 					"!!!!! This is the last trace point that "
 					"was reached by the CP !!!!!"
 					COLOR_RESET "\n");
-			else if (packet_id+1 == trace_id)
+			else if (packet_id+1 == *trace_ids)
 				fprintf(f, COLOR_RED
 					"!!!!! This is the first trace point that "
 					"was NOT been reached by the CP !!!!!"
@@ -332,24 +344,28 @@ static uint32_t *ac_parse_packet3(FILE *f, uint32_t *ib, int *num_dw,
  * \param ib		IB
  * \param num_dw	size of the IB
  * \param chip_class	chip class
- * \param trace_id	the last trace ID that is known to have been reached
+ * \param trace_ids	the last trace IDs that are known to have been reached
  *			and executed by the CP, typically read from a buffer
+ * \param trace_id_count The number of entries in the trace_ids array.
  * \param addr_callback Get a mapped pointer of the IB at a given address. Can
  *                      be NULL.
  * \param addr_callback_data user data for addr_callback
  */
-void ac_parse_ib(FILE *f, uint32_t *ib, int num_dw, int trace_id,
-		 const char *name, enum chip_class chip_class,
-		 ac_debug_addr_callback addr_callback, void *addr_callback_data)
+void ac_parse_ib(FILE *f, uint32_t *ib, int num_dw, const int *trace_ids,
+		 unsigned trace_id_count, const char *name,
+		 enum chip_class chip_class, ac_debug_addr_callback addr_callback,
+		 void *addr_callback_data)
 {
 	fprintf(f, "------------------ %s begin ------------------\n", name);
+	int current_trace_id = -1;
 
 	while (num_dw > 0) {
 		unsigned type = PKT_TYPE_G(ib[0]);
 
 		switch (type) {
 		case 3:
-			ib = ac_parse_packet3(f, ib, &num_dw, trace_id,
+			ib = ac_parse_packet3(f, ib, &num_dw, trace_ids,
+					      trace_id_count, &current_trace_id,
 					      chip_class, addr_callback,
 					      addr_callback_data);
 			break;

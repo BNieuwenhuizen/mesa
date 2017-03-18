@@ -2058,6 +2058,7 @@ void radv_CmdExecuteCommands(
 	if (commandBufferCount) {
 		primary->state.emitted_pipeline = NULL;
 		primary->state.emitted_compute_pipeline = NULL;
+		primary->state.last_ia_multi_vgt_param = 0;
 		primary->state.dirty |= RADV_CMD_DIRTY_PIPELINE;
 		primary->state.dirty |= RADV_CMD_DIRTY_DYNAMIC_ALL;
 	}

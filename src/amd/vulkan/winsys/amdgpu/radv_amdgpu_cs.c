@@ -959,13 +959,13 @@ static void *radv_amdgpu_winsys_get_cpu_addr(void *_cs, uint64_t addr)
 
 static void radv_amdgpu_winsys_cs_dump(struct radeon_winsys_cs *_cs,
                                        FILE* file,
-                                       uint32_t trace_id)
+                                       const int *trace_ids, int trace_id_count)
 {
 	struct radv_amdgpu_cs *cs = (struct radv_amdgpu_cs *)_cs;
 
 	ac_parse_ib(file,
 		    radv_amdgpu_winsys_get_cpu_addr(cs, cs->ib.ib_mc_address),
-		    cs->ib.size, (const int*)&trace_id, 1,  "main IB",
+		    cs->ib.size, trace_ids, trace_id_count,  "main IB",
 		    cs->ws->info.chip_class, radv_amdgpu_winsys_get_cpu_addr, cs);
 }
 

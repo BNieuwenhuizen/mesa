@@ -511,6 +511,8 @@ struct radv_device {
 
 	/* Backup in-memory cache to be used if the app doesn't provide one */
 	struct radv_pipeline_cache *                mem_cache;
+
+	FILE *shader_dump_file;
 };
 
 struct radv_device_memory {

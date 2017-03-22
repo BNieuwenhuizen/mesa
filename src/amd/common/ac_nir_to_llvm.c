@@ -1822,6 +1822,8 @@ static LLVMValueRef visit_vulkan_resource_index(struct nir_to_llvm_context *ctx,
 		desc_ptr = ctx->push_constants;
 		base_offset = pipeline_layout->push_constant_size + 16 * idx;
 		stride = LLVMConstInt(ctx->i32, 16, false);
+		if (idx >= pipeline_layout->dynamic_offset_count)
+			abort();
 	} else
 		stride = LLVMConstInt(ctx->i32, layout->binding[binding].size, false);
 
@@ -2082,6 +2084,8 @@ static LLVMValueRef visit_load_ubo_buffer(struct nir_to_llvm_context *ctx,
 						params, 2,
 						AC_FUNC_ATTR_READNONE |
 						AC_FUNC_ATTR_LEGACY);
+		//if (ctx->stage == MESA_SHADER_FRAGMENT)
+		//	results[i] = LLVMConstInt(ctx->i32, 1, 0);
 	}
 
 

@@ -275,6 +275,7 @@ radv_descriptor_set_create(struct radv_device *device,
 			vk_free2(&device->alloc, NULL, set);
 			return vk_error(VK_ERROR_OUT_OF_HOST_MEMORY);
 		}
+		memset(set->dynamic_descriptors, 0, size);
 	}
 
 	set->layout = layout;

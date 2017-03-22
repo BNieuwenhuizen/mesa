@@ -272,8 +272,10 @@ radv_shader_compile_to_nir(struct radv_device *device,
 	nir_remove_dead_variables(nir, nir_var_local);
 	radv_optimize_nir(nir);
 
-	if (dump)
+	if (dump) {
 		nir_print_shader(nir, stderr);
+		nir_print_shader(nir, device->shader_dump_file);
+	}
 
 	return nir;
 }
@@ -360,6 +362,7 @@ void radv_shader_variant_destroy(struct radv_device *device,
 	if (__sync_fetch_and_sub(&variant->ref_count, 1) != 1)
 		return;
 
+	fprintf(device->shader_dump_file, "free shader %p\n", device->ws->buffer_get_va(variant->bo));
 	device->ws->buffer_destroy(variant->bo);
 	free(variant);
 }
@@ -413,6 +416,14 @@ static void radv_fill_shader_variant(struct radv_device *device,
 	void *ptr = device->ws->buffer_map(variant->bo);
 	memcpy(ptr, binary->code, binary->code_size);
 	device->ws->buffer_unmap(variant->bo);
+	fprintf(device->shader_dump_file, "create shader at %p:\n%s\n\n", device->ws->buffer_get_va(variant->bo), binary->disasm_string);
+	fprintf(stderr, "create shader at %p\n\n", device->ws->buffer_get_va(variant->bo));
+
+	char filename[512];
+	sprintf(filename, "/mnt/extern2/tmp/shaders/%lx.bin", device->ws->buffer_get_va(variant->bo));
+	FILE*dump_file = fopen(filename, "w");
+	fwrite(binary->code, binary->code_size, 1, dump_file);
+	fclose(dump_file);
 
 
 }
@@ -513,7 +524,7 @@ radv_pipeline_compile(struct radv_pipeline *pipeline,
 {
 	unsigned char sha1[20];
 	unsigned char gs_copy_sha1[20];
-	struct radv_shader_variant *variant;
+	struct radv_shader_variant *variant = NULL;
 	nir_shader *nir;
 	void *code = NULL;
 	unsigned code_size = 0;
@@ -529,11 +540,12 @@ radv_pipeline_compile(struct radv_pipeline *pipeline,
 		radv_hash_shader(gs_copy_sha1, module, entrypoint, spec_info,
 				 layout, key, 1);
 
+	if (false)
 	variant = radv_create_shader_variant_from_pipeline_cache(pipeline->device,
 								 cache,
 								 sha1);
 
-	if (stage == MESA_SHADER_GEOMETRY) {
+	if (false && stage == MESA_SHADER_GEOMETRY) {
 		pipeline->gs_copy_shader =
 			radv_create_shader_variant_from_pipeline_cache(
 				pipeline->device,
@@ -563,7 +575,7 @@ radv_pipeline_compile(struct radv_pipeline *pipeline,
 		pipeline->gs_copy_shader = radv_pipeline_create_gs_copy_shader(
 			pipeline, nir, &gs_copy_code, &gs_copy_code_size, dump);
 
-		if (pipeline->gs_copy_shader) {
+		if (false && pipeline->gs_copy_shader) {
 			pipeline->gs_copy_shader =
 				radv_pipeline_cache_insert_shader(cache,
 								  gs_copy_sha1,
@@ -575,7 +587,7 @@ radv_pipeline_compile(struct radv_pipeline *pipeline,
 	if (!module->nir)
 		ralloc_free(nir);
 
-	if (variant)
+	if (false && variant)
 		variant = radv_pipeline_cache_insert_shader(cache, sha1, variant,
 							    code, code_size);
 

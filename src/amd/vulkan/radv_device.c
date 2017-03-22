@@ -929,6 +929,8 @@ VkResult radv_CreateDevice(
 
 	device->debug_flags = device->instance->debug_flags;
 
+	device->shader_dump_file = fopen("/mnt/extern2/tmp/shader.dump", "w");
+
 	device->ws = physical_device->ws;
 	if (pAllocator)
 		device->alloc = *pAllocator;
@@ -1097,6 +1099,7 @@ void radv_DestroyDevice(
 	VkPipelineCache pc = radv_pipeline_cache_to_handle(device->mem_cache);
 	radv_DestroyPipelineCache(radv_device_to_handle(device), pc, NULL);
 
+	fclose(device->shader_dump_file);
 	vk_free(&device->alloc, device);
 }
 
@@ -1189,7 +1192,15 @@ static void radv_dump_trace(struct radv_device *device,
 		return;
 	}
 
-	fprintf(f, "Trace ID: %x\n", *device->trace_id_ptr);
+	fprintf(f, "Trace ID: %d %d\n", device->trace_id_ptr[0], device->trace_id_ptr[1]);
+	fprintf(f, "descriptor contents:\n");
+	for (int i = 0; i < 64; ++i) {
+		fprintf(f, "   %x: %x\n", i * 4, device->trace_id_ptr[i + 64]);
+	}
+	fprintf(f, "dynamic BO contents:\n");
+	for (int i = 0; i < 128; ++i) {
+		fprintf(f, "   %x: %x\n", i * 4, device->trace_id_ptr[i + 128]);
+	}
 	device->ws->cs_dump(cs, f, (const int*)device->trace_id_ptr, 2);
 	fclose(f);
 }

@@ -323,6 +323,34 @@ static uint32_t *ac_parse_packet3(FILE *f, uint32_t *ib, int *num_dw,
 					"by the CP !!!!!"
 					COLOR_RESET "\n");
 			break;
+		} else if (ib[1] == 0xAC000001) {
+			fprintf(f, "  flush_constants:\n");
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, "va: %lx\n", ib[2] | ((unsigned long)ib[3] << 32));
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, "push constant size: %d\n", ib[4]);
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, "dynamic offset count: %d\n", ib[5]);
+			for (i = 6; i < count+2; i++) {
+				print_spaces(f, INDENT_PKT);
+				fprintf(f, "    0x%08x\n", ib[i]);
+			}
+			break;
+		} else if (ib[1] == 0xAC000002) {
+			fprintf(f, "  bind dynamic descriptor set:\n");
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, " set: %d\n", ib[2]);
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, " dynamic buffer in set: %d\n", ib[3]);
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, " idx: %d\n", ib[4]);
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, " dyn_idx: %d\n", ib[5]);
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, "va: %lx\n", ib[6] | ((unsigned long)ib[7] << 32));
+			print_spaces(f, INDENT_PKT);
+			fprintf(f, " size: %u\n", ib[8]);
+			break;
 		}
 		/* fall through, print all dwords */
 	default:

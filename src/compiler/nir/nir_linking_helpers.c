@@ -95,6 +95,9 @@ remove_unused_io_vars(nir_shader *shader, struct exec_list *var_list,
    bool progress = false;
    uint64_t valid = 0;
    nir_foreach_variable_safe(var, var_list) {
+      if (var->data.location >= VARYING_SLOT_MAX)
+         continue;
+
       if (used_by_other_stage & nir_variable_get_io_mask(var, shader->stage)) {
          valid |= nir_variable_get_io_mask(var, shader->stage);
       } else {
@@ -125,13 +128,30 @@ nir_remove_unused_varyings(nir_shader *producer, nir_shader *consumer)
     * on it.  Just walk the lists and compute it here.
     */
    nir_foreach_variable(var, &producer->outputs)
-      written |= nir_variable_get_io_mask(var, producer->stage);
+      if (var->data.location < VARYING_SLOT_MAX)
+         written |= nir_variable_get_io_mask(var, producer->stage);
 
    nir_foreach_variable(var, &consumer->inputs)
-      read |= nir_variable_get_io_mask(var, consumer->stage);
+      if (var->data.location < VARYING_SLOT_MAX)
+         read |= nir_variable_get_io_mask(var, consumer->stage);
 
    /* This one is always considered to be read */
-   read |= (1ull << VARYING_SLOT_POS);
+   if (consumer->stage == MESA_SHADER_FRAGMENT) {
+      read |= (1ull << VARYING_SLOT_POS) |
+              (1ull << VARYING_SLOT_CLIP_DIST0) |
+              (1ull << VARYING_SLOT_CLIP_DIST1) |
+              (1ull << VARYING_SLOT_CULL_DIST0) |
+              (1ull << VARYING_SLOT_CULL_DIST1) |
+              (1ull << VARYING_SLOT_LAYER) |
+              (1ull << VARYING_SLOT_VIEWPORT) |
+              (1ull << VARYING_SLOT_PSIZ);
+      written |= (1ull << VARYING_SLOT_PNTC);
+   }
+
+   if (producer->stage == MESA_SHADER_TESS_CTRL) {
+      read |= (1ull << VARYING_SLOT_TESS_LEVEL_OUTER) |
+              (1ull << VARYING_SLOT_TESS_LEVEL_INNER);
+   }
 
    remove_unused_io_vars(producer, &producer->outputs, read,
                          &producer->info.outputs_written);
@@ -155,7 +175,7 @@ compact_var_list(nir_shader *shader, struct exec_list *var_list,
                  uint64_t valid, uint64_t *slots_used)
 {
    int remap[64];
-   for (int i = VARYING_SLOT_VAR0, j = VARYING_SLOT_VAR0; i < 64; i++) {
+   for (int i = VARYING_SLOT_VAR0, j = VARYING_SLOT_VAR0; i < VARYING_SLOT_MAX; i++) {
       if (valid & (1ull << i)) {
          remap[i] = j++;
       } else {
@@ -166,6 +186,8 @@ compact_var_list(nir_shader *shader, struct exec_list *var_list,
    uint64_t slots_used_tmp = 0;
    nir_foreach_variable_safe(var, var_list) {
       assert(var->data.location >= 0);
+      if (var->data.location >= VARYING_SLOT_MAX)
+         continue;
 
       /* Only remap things that aren't built-ins */
       if (var->data.location >= VARYING_SLOT_VAR0) {

@@ -352,14 +352,15 @@ nir_variable_get_io_mask(nir_variable *var, gl_shader_stage stage)
           var->data.mode == nir_var_shader_out ||
           var->data.mode == nir_var_system_value);
    assert(var->data.location >= 0);
+   assert(var->data.location < 64);
 
    bool is_vertex_input = var->data.mode == nir_var_shader_in &&
                           stage == MESA_SHADER_VERTEX;
    const struct glsl_type *var_type = var->type;
-   if (stage == MESA_SHADER_GEOMETRY && var->data.mode == nir_var_shader_in) {
+   if (stage == MESA_SHADER_TESS_CTRL || ((stage == MESA_SHADER_GEOMETRY || stage == MESA_SHADER_TESS_EVAL) && var->data.mode == nir_var_shader_in)) {
       /* Most geometry shader inputs are per-vertex arrays */
-      if (var->data.location >= VARYING_SLOT_VAR0)
-         assert(glsl_type_is_array(var_type));
+      //if (var->data.location >= VARYING_SLOT_VAR0)
+      //   assert(glsl_type_is_array(var_type));
 
       if (glsl_type_is_array(var_type))
          var_type = glsl_get_array_element(var_type);

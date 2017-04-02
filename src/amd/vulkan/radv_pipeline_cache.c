@@ -429,7 +429,8 @@ radv_pipeline_cache_insert_shaders(struct radv_pipeline_cache *cache,
 			} else {
 				entry->variants[i] = variants[i];
 			}
-			__sync_fetch_and_add(&variants[i]->ref_count, 1);
+			if (variants[i])
+				__sync_fetch_and_add(&variants[i]->ref_count, 1);
 		}
 		pthread_mutex_unlock(&cache->mutex);
 		return;

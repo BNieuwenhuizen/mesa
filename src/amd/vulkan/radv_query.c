@@ -1212,6 +1212,8 @@ void radv_CmdWriteTimestamp(
 					   mec,
 					   V_028A90_BOTTOM_OF_PIPE_TS, 0,
 					   1, avail_va, 0, 1);
+
+		si_emit_wait_fence(cs, avail_va, 1, 0xffffffff);
 		break;
 	}
 

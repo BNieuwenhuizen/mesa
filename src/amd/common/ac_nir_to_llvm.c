@@ -3299,6 +3299,34 @@ static LLVMValueRef visit_image_load(struct nir_to_llvm_context *ctx,
 	return to_integer(ctx, res);
 }
 
+/**
+ * Given a 256-bit resource descriptor, force the DCC enable bit to off.
+ *
+ * At least on Tonga, executing image stores on images with DCC enabled and
+ * non-trivial can eventually lead to lockups. This can occur when an
+ * application binds an image as read-only but then uses a shader that writes
+ * to it. The OpenGL spec allows almost arbitrarily bad behavior (including
+ * program termination) in this case, but it doesn't cost much to be a bit
+ * nicer: disabling DCC in the shader still leads to undefined results but
+ * avoids the lockup.
+ */
+static LLVMValueRef force_dcc_off(struct nir_to_llvm_context *ctx,
+				  LLVMValueRef rsrc)
+{
+	if (ctx->options->chip_class <= CIK) {
+		return rsrc;
+	} else {
+		LLVMBuilderRef builder = ctx->builder;
+		LLVMValueRef i32_6 = LLVMConstInt(ctx->i32, 6, 0);
+		LLVMValueRef i32_C = LLVMConstInt(ctx->i32, C_008F28_COMPRESSION_EN, 0);
+		LLVMValueRef tmp;
+
+		tmp = LLVMBuildExtractElement(builder, rsrc, i32_6, "");
+		tmp = LLVMBuildAnd(builder, tmp, i32_C, "");
+		return LLVMBuildInsertElement(builder, rsrc, tmp, i32_6, "");
+	}
+}
+
 static void visit_image_store(struct nir_to_llvm_context *ctx,
 			      nir_intrinsic_instr *instr)
 {
@@ -3329,7 +3357,7 @@ static void visit_image_store(struct nir_to_llvm_context *ctx,
 
 		params[0] = to_float(ctx, get_src(ctx, instr->src[2]));
 		params[1] = get_image_coords(ctx, instr); /* coords */
-		params[2] = get_sampler_desc(ctx, instr->variables[0], DESC_IMAGE);
+		params[2] = force_dcc_off(ctx, get_sampler_desc(ctx, instr->variables[0], DESC_IMAGE));
 		params[3] = LLVMConstInt(ctx->i32, 15, false); /* dmask */
 		if (HAVE_LLVM <= 0x0309) {
 			params[4] = ctx->i1false;  /* r128 */

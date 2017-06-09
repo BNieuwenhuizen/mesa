@@ -108,9 +108,7 @@ radv_init_surface(struct radv_device *device,
 
 	surface->flags |= RADEON_SURF_HAS_TILE_MODE_INDEX;
 
-	if ((pCreateInfo->usage & (VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-	                           VK_IMAGE_USAGE_STORAGE_BIT)) ||
-	    (pCreateInfo->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) ||
+	if ((pCreateInfo->usage & (VK_IMAGE_USAGE_STORAGE_BIT)) ||
             (pCreateInfo->tiling == VK_IMAGE_TILING_LINEAR) ||
             device->physical_device->rad_info.chip_class < VI ||
             create_info->scanout || (device->debug_flags & RADV_DEBUG_NO_DCC) ||

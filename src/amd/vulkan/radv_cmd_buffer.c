@@ -1916,7 +1916,7 @@ VkResult radv_ResetCommandBuffer(
 static void emit_gfx_buffer_state(struct radv_cmd_buffer *cmd_buffer)
 {
 	struct radv_device *device = cmd_buffer->device;
-	if (device->gfx_init) {
+	if (false && device->gfx_init) {
 		uint64_t va = device->ws->buffer_get_va(device->gfx_init);
 		device->ws->cs_add_buffer(cmd_buffer->cs, device->gfx_init, 8);
 		radeon_emit(cmd_buffer->cs, PKT3(PKT3_INDIRECT_BUFFER_CIK, 2, 0));

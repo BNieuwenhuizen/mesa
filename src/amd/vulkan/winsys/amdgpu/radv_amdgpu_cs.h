@@ -48,6 +48,26 @@ struct radv_amdgpu_fence {
 	volatile uint64_t *user_ptr;
 };
 
+struct radv_ringbuffer_fence {
+	struct radv_amdgpu_fence fence;
+	uint64_t position;
+};
+
+struct radv_amdgpu_queue {
+	pthread_mutex_t ringbuffer_lock;
+
+	uint64_t ringbuffer_read_position;
+	uint64_t ringbuffer_write_position;
+	uint64_t ringbuffer_size;
+	struct radeon_winsys_bo *ringbuffer;
+	uint8_t *ringbuffer_data;
+
+	uint64_t ringbuffer_fence_read_position;
+	uint64_t ringbuffer_fence_write_position;
+	uint64_t ringbuffer_fence_size;
+	struct radv_ringbuffer_fence *ringbuffer_fences;
+};
+
 struct radv_amdgpu_ctx {
 	struct radv_amdgpu_winsys *ws;
 	amdgpu_context_handle ctx;
@@ -55,6 +75,8 @@ struct radv_amdgpu_ctx {
 
 	struct radeon_winsys_bo *fence_bo;
 	uint64_t *fence_map;
+
+	struct radv_amdgpu_queue queue;
 };
 
 static inline struct radv_amdgpu_ctx *

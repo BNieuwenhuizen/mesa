@@ -1894,7 +1894,6 @@ VkResult radv_QueueSubmit(
 			sample_positions_needed |= cmd_buffer->sample_positions_needed;
 		}
 	}
-
 	result = radv_get_preamble_cs(queue, scratch_size, compute_scratch_size,
 	                              esgs_ring_size, gsvs_ring_size, tess_rings_needed,
 				      sample_positions_needed,
@@ -1904,7 +1903,7 @@ VkResult radv_QueueSubmit(
 
 	for (uint32_t i = 0; i < submitCount; i++) {
 		struct radeon_winsys_cs **cs_array;
-		bool do_flush = !i || pSubmits[i].pWaitDstStageMask;
+		bool do_flush = 0;//!i || pSubmits[i].pWaitDstStageMask;
 		bool can_patch = !do_flush;
 		uint32_t advance;
 

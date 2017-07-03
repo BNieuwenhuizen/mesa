@@ -149,6 +149,10 @@ static const VkExtensionProperties common_device_extensions[] = {
 		.extensionName = VK_KHX_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
 		.specVersion = 1,
 	},
+	{
+		.extensionName = VK_KHX_MULTIVIEW_EXTENSION_NAME,
+		.specVersion = 1,
+	},
 };
 
 static VkResult
@@ -581,7 +585,20 @@ void radv_GetPhysicalDeviceFeatures2KHR(
 	VkPhysicalDevice                            physicalDevice,
 	VkPhysicalDeviceFeatures2KHR               *pFeatures)
 {
-	return radv_GetPhysicalDeviceFeatures(physicalDevice, &pFeatures->features);
+	radv_GetPhysicalDeviceFeatures(physicalDevice, &pFeatures->features);
+	vk_foreach_struct(ext, pFeatures->pNext) {
+		switch (ext->sType) {
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES_KHX: {
+			VkPhysicalDeviceMultiviewFeaturesKHX *features = (VkPhysicalDeviceMultiviewFeaturesKHX*)ext;
+			features->multiview = true;
+			features->multiviewGeometryShader = true;
+			features->multiviewTessellationShader = true;
+			break;
+		}
+		default:
+			break;
+		}
+	}
 }
 
 void radv_GetPhysicalDeviceProperties(
@@ -751,6 +768,12 @@ void radv_GetPhysicalDeviceProperties2KHR(
 			radv_device_get_cache_uuid(0, properties->driverUUID);
 			memcpy(properties->deviceUUID, pdevice->device_uuid, VK_UUID_SIZE);
 			properties->deviceLUIDValid = false;
+			break;
+		}
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES_KHX: {
+			VkPhysicalDeviceMultiviewPropertiesKHX *properties = (VkPhysicalDeviceMultiviewPropertiesKHX*)ext;
+			properties->maxMultiviewViewCount = 8;
+			properties->maxMultiviewInstanceIndex = INT_MAX;
 			break;
 		}
 		default:

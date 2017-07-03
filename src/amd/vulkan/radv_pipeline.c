@@ -647,7 +647,8 @@ radv_tess_pipeline_compile(struct radv_pipeline *pipeline,
 			   const VkSpecializationInfo *tcs_spec_info,
 			   const VkSpecializationInfo *tes_spec_info,
 			   struct radv_pipeline_layout *layout,
-			   unsigned input_vertices)
+			   unsigned input_vertices,
+			   bool has_view_index)
 {
 	unsigned char tcs_sha1[20], tes_sha1[20];
 	struct radv_shader_variant *tes_variant = NULL, *tcs_variant = NULL;
@@ -660,6 +661,7 @@ radv_tess_pipeline_compile(struct radv_pipeline *pipeline,
 
 	tes_key = radv_compute_tes_key(radv_pipeline_has_gs(pipeline),
 				       pipeline->shaders[MESA_SHADER_FRAGMENT]->info.fs.prim_id_input);
+	tes_key.has_multiview_view_index = has_view_index;
 	if (tes_module->nir)
 		_mesa_sha1_compute(tes_module->nir->info.name,
 				   strlen(tes_module->nir->info.name),
@@ -2017,7 +2019,12 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 {
 	struct radv_shader_module fs_m = {0};
 	VkResult result;
+	bool has_view_index = false;
 
+	RADV_FROM_HANDLE(radv_render_pass, pass, pCreateInfo->renderPass);
+	struct radv_subpass *subpass = pass->subpasses + pCreateInfo->subpass;
+	if (subpass->view_mask)
+		has_view_index = true;
 	if (alloc == NULL)
 		alloc = &device->alloc;
 
@@ -2047,6 +2054,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 		struct ac_shader_variant_key key;
 		key.fs.col_format = pipeline->graphics.blend.spi_shader_col_format;
 		key.fs.is_int8 = radv_pipeline_compute_is_int8(pCreateInfo);
+		key.has_multiview_view_index = has_view_index;
 
 		const VkPipelineShaderStageCreateInfo *stage = pStages[MESA_SHADER_FRAGMENT];
 
@@ -2073,6 +2081,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 		else if (pipeline->shaders[MESA_SHADER_FRAGMENT]->info.fs.prim_id_input)
 			export_prim_id = true;
 		struct ac_shader_variant_key key = radv_compute_vs_key(pCreateInfo, as_es, as_ls, export_prim_id);
+		key.has_multiview_view_index = has_view_index;
 
 		pipeline->shaders[MESA_SHADER_VERTEX] =
 			 radv_pipeline_compile(pipeline, cache, modules[MESA_SHADER_VERTEX],
@@ -2086,6 +2095,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 
 	if (modules[MESA_SHADER_GEOMETRY]) {
 		struct ac_shader_variant_key key = radv_compute_vs_key(pCreateInfo, false, false, false);
+		key.has_multiview_view_index = has_view_index;
 
 		pipeline->shaders[MESA_SHADER_GEOMETRY] =
 			 radv_pipeline_compile(pipeline, cache, modules[MESA_SHADER_GEOMETRY],
@@ -2109,7 +2119,8 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 					   pStages[MESA_SHADER_TESS_CTRL]->pSpecializationInfo,
 					   pStages[MESA_SHADER_TESS_EVAL]->pSpecializationInfo,
 					   pipeline->layout,
-					   pCreateInfo->pTessellationState->patchControlPoints);
+					   pCreateInfo->pTessellationState->patchControlPoints,
+					   has_view_index);
 		pipeline->active_stages |= mesa_to_vk_shader_stage(MESA_SHADER_TESS_EVAL) |
 			mesa_to_vk_shader_stage(MESA_SHADER_TESS_CTRL);
 	}

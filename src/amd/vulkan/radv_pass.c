@@ -41,6 +41,7 @@ VkResult radv_CreateRenderPass(
 	VkRenderPassMultiviewCreateInfoKHX *multiview_info = NULL;
 
 	assert(pCreateInfo->sType == VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO);
+	assert(pCreateInfo->subpassCount);
 
 	size = sizeof(*pass);
 	size += pCreateInfo->subpassCount * sizeof(pass->subpasses[0]);

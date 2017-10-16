@@ -246,8 +246,8 @@ radv_shader_compile_to_nir(struct radv_device *device,
 	nir_shader_gather_info(nir, entry_point->impl);
 
 	nir_variable_mode indirect_mask = 0;
+	if (nir->stage != MESA_SHADER_TESS_CTRL && nir->stage != MESA_SHADER_TESS_EVAL)
 	indirect_mask |= nir_var_shader_in;
-	indirect_mask |= nir_var_local;
 
 	nir_lower_indirect_derefs(nir, indirect_mask);
 

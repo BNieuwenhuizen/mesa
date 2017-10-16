@@ -1449,7 +1449,10 @@ radv_get_preamble_cs(struct radv_queue *queue,
 								       tess_factor_ring_size,
 								       256,
 								       RADEON_DOMAIN_VRAM,
-								       RADEON_FLAG_NO_CPU_ACCESS);
+								       /*RADEON_FLAG_NO_CPU_ACCESS*/0);
+		int* data = queue->device->ws->buffer_map(tess_factor_ring_bo);
+		for (int i = 0; i * 4 < tess_factor_ring_size; ++i)
+			data[i] = 1.0;
 		if (!tess_factor_ring_bo)
 			goto fail;
 		tess_offchip_ring_bo = queue->device->ws->buffer_create(queue->device->ws,

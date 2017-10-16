@@ -1270,7 +1270,7 @@ calculate_tess_state(struct radv_pipeline *pipeline,
 	/* Not necessary for correctness, but improves performance. The
 	 * specific value is taken from the proprietary driver.
 	 */
-	num_patches = MIN2(num_patches, 40);
+	num_patches = MIN2(num_patches, 1);
 
 	/* SI bug workaround - limit LS-HS threadgroups to only one wave. */
 	if (pipeline->device->physical_device->rad_info.chip_class == SI) {
@@ -1666,6 +1666,7 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 		                                                                      pipeline->layout,
 		                                                                      &key, &codes[MESA_SHADER_TESS_CTRL],
 		                                                                      &code_sizes[MESA_SHADER_TESS_CTRL]);
+		modules[MESA_SHADER_VERTEX] = NULL;
 	}
 
 	if (device->physical_device->rad_info.chip_class >= GFX9 &&
@@ -1676,6 +1677,7 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 		                                                                     pipeline->layout,
 		                                                                     &keys[pre_stage] , &codes[MESA_SHADER_GEOMETRY],
 		                                                                     &code_sizes[MESA_SHADER_GEOMETRY]);
+		modules[pre_stage] = NULL;
 	}
 
 	for (int i = 0; i < MESA_SHADER_STAGES; ++i) {

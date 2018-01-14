@@ -1230,7 +1230,6 @@ struct radv_pipeline {
 			struct radv_tessellation_state tess;
 			struct radv_gs_state gs;
 			uint32_t db_shader_control;
-			uint32_t shader_z_format;
 			unsigned prim;
 			unsigned gs_out;
 			uint32_t vgt_gs_mode;

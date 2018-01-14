@@ -2802,7 +2802,9 @@ radv_pipeline_generate_fragment_shader(struct radv_pm4_builder *builder,
 	radv_pm4_set_reg(builder, R_0286E0_SPI_BARYC_CNTL, spi_baryc_cntl);
 
 	radv_pm4_set_reg(builder, R_028710_SPI_SHADER_Z_FORMAT,
-			       pipeline->graphics.shader_z_format);
+	                 ac_get_spi_shader_z_format(ps->info.fs.writes_z,
+	                                            ps->info.fs.writes_stencil,
+	                                            ps->info.fs.writes_sample_mask));
 
 	radv_pm4_set_reg(builder, R_028714_SPI_SHADER_COL_FORMAT, blend->spi_shader_col_format);
 
@@ -2965,12 +2967,6 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 
 	if (pipeline->device->physical_device->has_rbplus)
 		pipeline->graphics.db_shader_control |= S_02880C_DUAL_QUAD_DISABLE(1);
-
-	unsigned shader_z_format =
-		ac_get_spi_shader_z_format(ps->info.fs.writes_z,
-					   ps->info.fs.writes_stencil,
-					   ps->info.fs.writes_sample_mask);
-	pipeline->graphics.shader_z_format = shader_z_format;
 
 	calculate_vgt_gs_mode(pipeline);
 

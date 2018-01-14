@@ -2832,8 +2832,13 @@ radv_pipeline_generate_vgt_vertex_reuse(struct radv_pm4_builder *builder,
 	if (pipeline->device->physical_device->rad_info.family < CHIP_POLARIS10)
 		return;
 
+	unsigned vtx_reuse_depth = 30;
+	if (radv_pipeline_has_tess(pipeline) &&
+	    radv_get_tess_eval_shader(pipeline)->info.tes.spacing == TESS_SPACING_FRACTIONAL_ODD) {
+		vtx_reuse_depth = 14;
+	}
 	radv_pm4_set_reg(builder, R_028C58_VGT_VERTEX_REUSE_BLOCK_CNTL,
-			       pipeline->graphics.vtx_reuse_depth);
+	                 S_028C58_VTX_REUSE_DEPTH(vtx_reuse_depth));
 }
 
 static void
@@ -3148,12 +3153,6 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 			pipeline->graphics.vtx_emit_num = 3;
 		else
 			pipeline->graphics.vtx_emit_num = 2;
-	}
-
-	pipeline->graphics.vtx_reuse_depth = 30;
-	if (radv_pipeline_has_tess(pipeline) &&
-	    radv_get_tess_eval_shader(pipeline)->info.tes.spacing == TESS_SPACING_FRACTIONAL_ODD) {
-		pipeline->graphics.vtx_reuse_depth = 14;
 	}
 
 	if (device->instance->debug_flags & RADV_DEBUG_DUMP_SHADER_STATS) {

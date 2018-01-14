@@ -1201,6 +1201,25 @@ struct radv_binning_state {
 	uint32_t db_dfsm_control;
 };
 
+struct radv_pm4_chunk {
+	uint32_t *data;
+	unsigned data_word_count;
+};
+
+struct radv_pm4_builder {
+	struct radv_pm4_chunk *chunk;
+	unsigned data_capacity;
+};
+
+void radv_pm4_init(struct radv_pm4_builder *builder, struct radv_pm4_chunk *chunk);
+void radv_pm4_finish(struct radv_pm4_builder *builder);
+void radv_pm4_start_reg_set(struct radv_pm4_builder *builder, uint32_t reg, uint32_t count);
+void radv_pm4_start_reg_set_idx(struct radv_pm4_builder *builder, uint32_t reg, uint32_t index, uint32_t count);
+void radv_pm4_emit(struct radv_pm4_builder *builder, uint32_t value);
+void radv_pm4_emit_array(struct radv_pm4_builder *builder, const uint32_t *values, unsigned count);
+void radv_pm4_set_reg(struct radv_pm4_builder *builder, uint32_t reg, uint32_t value);
+void radv_pm4_set_reg_idx(struct radv_pm4_builder *builder, uint32_t reg, uint32_t idx, uint32_t value);
+
 #define SI_GS_PER_ES 128
 
 struct radv_pipeline {

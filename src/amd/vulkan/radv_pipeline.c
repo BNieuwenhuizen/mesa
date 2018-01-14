@@ -2831,3 +2831,69 @@ VkResult radv_CreateComputePipelines(
 
 	return result;
 }
+
+
+void radv_pm4_init(struct radv_pm4_builder *builder, struct radv_pm4_chunk *chunk) {
+	builder->chunk = chunk;
+	builder->data_capacity = 0;
+
+	chunk->data = NULL;
+	chunk->data_word_count = 0;
+}
+
+void radv_pm4_finish(struct radv_pm4_builder *builder)
+{
+	/* Actually a nop for now */
+}
+
+void radv_pm4_start_reg_set_idx(struct radv_pm4_builder *builder, uint32_t reg, uint32_t index, uint32_t count)
+{
+	if (reg >= SI_CONFIG_REG_OFFSET && reg < SI_CONFIG_REG_END) {
+		radv_pm4_emit(builder, PKT3(PKT3_SET_CONFIG_REG, count, 0));
+		radv_pm4_emit(builder, (reg - SI_CONFIG_REG_OFFSET) >> 2 | (index << 28));
+	} else if (reg >= SI_SH_REG_OFFSET && reg < SI_SH_REG_END) {
+		radv_pm4_emit(builder, PKT3(PKT3_SET_SH_REG, count, 0));
+		radv_pm4_emit(builder, (reg - SI_SH_REG_OFFSET) >> 2 | (index << 28));
+	} else if (reg >= SI_CONTEXT_REG_OFFSET && reg < SI_CONTEXT_REG_END) {
+		radv_pm4_emit(builder, PKT3(PKT3_SET_CONTEXT_REG, count, 0));
+		radv_pm4_emit(builder, (reg - SI_CONTEXT_REG_OFFSET) >> 2 | (index << 28));
+	} else if (reg >= CIK_UCONFIG_REG_OFFSET && reg < CIK_UCONFIG_REG_END) {
+		radv_pm4_emit(builder, PKT3(PKT3_SET_UCONFIG_REG, count, 0));
+		radv_pm4_emit(builder, (reg - CIK_UCONFIG_REG_OFFSET) >> 2 | (index << 28));
+	} else
+		unreachable("Unknown register space for register!");
+}
+
+void radv_pm4_start_reg_set(struct radv_pm4_builder *builder, uint32_t reg, uint32_t count)
+{
+	radv_pm4_start_reg_set_idx(builder, reg, 0, count);
+}
+
+void radv_pm4_emit(struct radv_pm4_builder *builder, uint32_t value)
+{
+	if (builder->data_capacity <= builder->chunk->data_word_count) {
+		unsigned new_capacity = MAX2(64, builder->data_capacity * 2);
+		builder->chunk->data = realloc(builder->chunk->data, new_capacity * 4);
+		builder->data_capacity = new_capacity;
+	}
+
+	builder->chunk->data[builder->chunk->data_word_count++] = value;
+}
+
+void radv_pm4_emit_array(struct radv_pm4_builder *builder, const uint32_t *values, unsigned count)
+{
+	for (unsigned i = 0; i < count; ++i)
+		radv_pm4_emit(builder, values[i]);
+}
+
+void radv_pm4_set_reg(struct radv_pm4_builder *builder, uint32_t reg, uint32_t value)
+{
+	radv_pm4_start_reg_set(builder, reg, 1);
+	radv_pm4_emit(builder, value);
+}
+
+void radv_pm4_set_reg_idx(struct radv_pm4_builder *builder, uint32_t reg, uint32_t idx, uint32_t value)
+{
+	radv_pm4_start_reg_set_idx(builder, reg, idx, 1);
+	radv_pm4_emit(builder, value);
+}

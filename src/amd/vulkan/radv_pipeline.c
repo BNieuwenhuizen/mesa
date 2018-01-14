@@ -691,58 +691,6 @@ static uint32_t si_translate_stencil_op(enum VkStencilOp op)
 		return 0;
 	}
 }
-static void
-radv_pipeline_init_depth_stencil_state(struct radv_pipeline *pipeline,
-				       const VkGraphicsPipelineCreateInfo *pCreateInfo,
-				       const struct radv_graphics_pipeline_create_info *extra)
-{
-	const VkPipelineDepthStencilStateCreateInfo *vkds = pCreateInfo->pDepthStencilState;
-	struct radv_depth_stencil_state *ds = &pipeline->graphics.ds;
-
-	if (!vkds)
-		return;
-
-	RADV_FROM_HANDLE(radv_render_pass, pass, pCreateInfo->renderPass);
-	struct radv_subpass *subpass = pass->subpasses + pCreateInfo->subpass;
-	if (subpass->depth_stencil_attachment.attachment == VK_ATTACHMENT_UNUSED)
-		return;
-
-	struct radv_render_pass_attachment *attachment = pass->attachments + subpass->depth_stencil_attachment.attachment;
-	bool has_depth_attachment = vk_format_is_depth(attachment->format);
-	bool has_stencil_attachment = vk_format_is_stencil(attachment->format);
-
-	if (has_depth_attachment) {
-		ds->db_depth_control = S_028800_Z_ENABLE(vkds->depthTestEnable ? 1 : 0) |
-		                       S_028800_Z_WRITE_ENABLE(vkds->depthWriteEnable ? 1 : 0) |
-		                       S_028800_ZFUNC(vkds->depthCompareOp) |
-		                       S_028800_DEPTH_BOUNDS_ENABLE(vkds->depthBoundsTestEnable ? 1 : 0);
-	}
-
-	if (has_stencil_attachment && vkds->stencilTestEnable) {
-		ds->db_depth_control |= S_028800_STENCIL_ENABLE(1) | S_028800_BACKFACE_ENABLE(1);
-		ds->db_depth_control |= S_028800_STENCILFUNC(vkds->front.compareOp);
-		ds->db_stencil_control |= S_02842C_STENCILFAIL(si_translate_stencil_op(vkds->front.failOp));
-		ds->db_stencil_control |= S_02842C_STENCILZPASS(si_translate_stencil_op(vkds->front.passOp));
-		ds->db_stencil_control |= S_02842C_STENCILZFAIL(si_translate_stencil_op(vkds->front.depthFailOp));
-
-		ds->db_depth_control |= S_028800_STENCILFUNC_BF(vkds->back.compareOp);
-		ds->db_stencil_control |= S_02842C_STENCILFAIL_BF(si_translate_stencil_op(vkds->back.failOp));
-		ds->db_stencil_control |= S_02842C_STENCILZPASS_BF(si_translate_stencil_op(vkds->back.passOp));
-		ds->db_stencil_control |= S_02842C_STENCILZFAIL_BF(si_translate_stencil_op(vkds->back.depthFailOp));
-	}
-
-	if (extra) {
-
-		ds->db_render_control |= S_028000_DEPTH_CLEAR_ENABLE(extra->db_depth_clear);
-		ds->db_render_control |= S_028000_STENCIL_CLEAR_ENABLE(extra->db_stencil_clear);
-
-		ds->db_render_control |= S_028000_RESUMMARIZE_ENABLE(extra->db_resummarize);
-		ds->db_render_control |= S_028000_DEPTH_COMPRESS_DISABLE(extra->db_flush_depth_inplace);
-		ds->db_render_control |= S_028000_STENCIL_COMPRESS_DISABLE(extra->db_flush_stencil_inplace);
-		ds->db_render_override2 |= S_028010_DISABLE_ZMASK_EXPCLEAR_OPTIMIZATION(extra->db_depth_disable_expclear);
-		ds->db_render_override2 |= S_028010_DISABLE_SMEM_EXPCLEAR_OPTIMIZATION(extra->db_stencil_disable_expclear);
-	}
-}
 
 static uint32_t si_translate_fill(VkPolygonMode func)
 {
@@ -2311,14 +2259,59 @@ radv_pipeline_generate_binning_state(struct radv_pm4_builder *builder,
 
 static void
 radv_pipeline_generate_depth_stencil_state(struct radv_pm4_builder *builder,
-                                           struct radv_pipeline *pipeline)
+                                           struct radv_pipeline *pipeline,
+                                           const VkGraphicsPipelineCreateInfo *pCreateInfo,
+                                           const struct radv_graphics_pipeline_create_info *extra)
 {
-	struct radv_depth_stencil_state *ds = &pipeline->graphics.ds;
-	radv_pm4_set_reg(builder, R_028800_DB_DEPTH_CONTROL, ds->db_depth_control);
-	radv_pm4_set_reg(builder, R_02842C_DB_STENCIL_CONTROL, ds->db_stencil_control);
+	const VkPipelineDepthStencilStateCreateInfo *vkds = pCreateInfo->pDepthStencilState;
+	RADV_FROM_HANDLE(radv_render_pass, pass, pCreateInfo->renderPass);
+	struct radv_subpass *subpass = pass->subpasses + pCreateInfo->subpass;
+	struct radv_render_pass_attachment *attachment = NULL;
+	uint32_t db_depth_control = 0, db_stencil_control = 0;
+	uint32_t db_render_control = 0, db_render_override2 = 0;
 
-	radv_pm4_set_reg(builder, R_028000_DB_RENDER_CONTROL, ds->db_render_control);
-	radv_pm4_set_reg(builder, R_028010_DB_RENDER_OVERRIDE2, ds->db_render_override2);
+	if (subpass->depth_stencil_attachment.attachment != VK_ATTACHMENT_UNUSED)
+		attachment = pass->attachments + subpass->depth_stencil_attachment.attachment;
+
+	bool has_depth_attachment = attachment && vk_format_is_depth(attachment->format);
+	bool has_stencil_attachment = attachment && vk_format_is_stencil(attachment->format);
+
+	if (vkds && has_depth_attachment) {
+		db_depth_control = S_028800_Z_ENABLE(vkds->depthTestEnable ? 1 : 0) |
+		                   S_028800_Z_WRITE_ENABLE(vkds->depthWriteEnable ? 1 : 0) |
+		                   S_028800_ZFUNC(vkds->depthCompareOp) |
+		                   S_028800_DEPTH_BOUNDS_ENABLE(vkds->depthBoundsTestEnable ? 1 : 0);
+	}
+
+	if (has_stencil_attachment && vkds && vkds->stencilTestEnable) {
+		db_depth_control |= S_028800_STENCIL_ENABLE(1) | S_028800_BACKFACE_ENABLE(1);
+		db_depth_control |= S_028800_STENCILFUNC(vkds->front.compareOp);
+		db_stencil_control |= S_02842C_STENCILFAIL(si_translate_stencil_op(vkds->front.failOp));
+		db_stencil_control |= S_02842C_STENCILZPASS(si_translate_stencil_op(vkds->front.passOp));
+		db_stencil_control |= S_02842C_STENCILZFAIL(si_translate_stencil_op(vkds->front.depthFailOp));
+
+		db_depth_control |= S_028800_STENCILFUNC_BF(vkds->back.compareOp);
+		db_stencil_control |= S_02842C_STENCILFAIL_BF(si_translate_stencil_op(vkds->back.failOp));
+		db_stencil_control |= S_02842C_STENCILZPASS_BF(si_translate_stencil_op(vkds->back.passOp));
+		db_stencil_control |= S_02842C_STENCILZFAIL_BF(si_translate_stencil_op(vkds->back.depthFailOp));
+	}
+
+	if (attachment && extra) {
+		db_render_control |= S_028000_DEPTH_CLEAR_ENABLE(extra->db_depth_clear);
+		db_render_control |= S_028000_STENCIL_CLEAR_ENABLE(extra->db_stencil_clear);
+
+		db_render_control |= S_028000_RESUMMARIZE_ENABLE(extra->db_resummarize);
+		db_render_control |= S_028000_DEPTH_COMPRESS_DISABLE(extra->db_flush_depth_inplace);
+		db_render_control |= S_028000_STENCIL_COMPRESS_DISABLE(extra->db_flush_stencil_inplace);
+		db_render_override2 |= S_028010_DISABLE_ZMASK_EXPCLEAR_OPTIMIZATION(extra->db_depth_disable_expclear);
+		db_render_override2 |= S_028010_DISABLE_SMEM_EXPCLEAR_OPTIMIZATION(extra->db_stencil_disable_expclear);
+	}
+
+	radv_pm4_set_reg(builder, R_028800_DB_DEPTH_CONTROL, db_depth_control);
+	radv_pm4_set_reg(builder, R_02842C_DB_STENCIL_CONTROL, db_stencil_control);
+
+	radv_pm4_set_reg(builder, R_028000_DB_RENDER_CONTROL, db_render_control);
+	radv_pm4_set_reg(builder, R_028010_DB_RENDER_OVERRIDE2, db_render_override2);
 }
 
 static void
@@ -2841,12 +2834,13 @@ radv_pipeline_generate_vgt_vertex_reuse(struct radv_pm4_builder *builder,
 
 static void
 radv_pipeline_generate_pm4(struct radv_pipeline *pipeline,
-                           const VkGraphicsPipelineCreateInfo *pCreateInfo) {
+                           const VkGraphicsPipelineCreateInfo *pCreateInfo,
+                           const struct radv_graphics_pipeline_create_info *extra) {
 	struct radv_pm4_builder builder;
 	
 	radv_pm4_init(&builder, &pipeline->pm4);
 
-	radv_pipeline_generate_depth_stencil_state(&builder, pipeline);
+	radv_pipeline_generate_depth_stencil_state(&builder, pipeline, pCreateInfo, extra);
 	radv_pipeline_generate_blend_state(&builder, pipeline);
 	radv_pipeline_generate_raster_state(&builder, pipeline);
 	radv_pipeline_generate_multisample_state(&builder, pipeline);
@@ -2910,7 +2904,6 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	                    radv_generate_graphics_pipeline_key(pipeline, pCreateInfo, has_view_index),
 	                    pStages);
 
-	radv_pipeline_init_depth_stencil_state(pipeline, pCreateInfo, extra);
 	radv_pipeline_init_raster_state(pipeline, pCreateInfo);
 	radv_pipeline_init_multisample_state(pipeline, pCreateInfo);
 	pipeline->graphics.prim = si_translate_prim(pCreateInfo->pInputAssemblyState->topology);
@@ -3158,7 +3151,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	}
 
 	result = radv_pipeline_scratch_init(device, pipeline);
-	radv_pipeline_generate_pm4(pipeline, pCreateInfo);
+	radv_pipeline_generate_pm4(pipeline, pCreateInfo, extra);
 
 	return result;
 }

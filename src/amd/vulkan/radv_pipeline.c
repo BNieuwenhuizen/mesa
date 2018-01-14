@@ -60,6 +60,8 @@ radv_pipeline_destroy(struct radv_device *device,
 	if (pipeline->gs_copy_shader)
 		radv_shader_variant_destroy(device, pipeline->gs_copy_shader);
 
+	if(pipeline->pm4.data)
+		free(pipeline->pm4.data);
 	vk_free2(&device->alloc, allocator, pipeline);
 }
 
@@ -2415,6 +2417,483 @@ radv_compute_binning_state(struct radv_pipeline *pipeline, const VkGraphicsPipel
 	assert(!pipeline->device->dfsm_allowed);
 }
 
+
+static void
+radv_pipeline_generate_depth_stencil_state(struct radv_pm4_builder *builder,
+                                           struct radv_pipeline *pipeline)
+{
+	struct radv_depth_stencil_state *ds = &pipeline->graphics.ds;
+	radv_pm4_set_reg(builder, R_028800_DB_DEPTH_CONTROL, ds->db_depth_control);
+	radv_pm4_set_reg(builder, R_02842C_DB_STENCIL_CONTROL, ds->db_stencil_control);
+
+	radv_pm4_set_reg(builder, R_028000_DB_RENDER_CONTROL, ds->db_render_control);
+	radv_pm4_set_reg(builder, R_028010_DB_RENDER_OVERRIDE2, ds->db_render_override2);
+}
+
+static void
+radv_pipeline_generate_blend_state(struct radv_pm4_builder *builder,
+                                   struct radv_pipeline *pipeline)
+{
+	radv_pm4_start_reg_set(builder, R_028780_CB_BLEND0_CONTROL, 8);
+	radv_pm4_emit_array(builder, pipeline->graphics.blend.cb_blend_control,
+			  8);
+	radv_pm4_set_reg(builder, R_028808_CB_COLOR_CONTROL, pipeline->graphics.blend.cb_color_control);
+	radv_pm4_set_reg(builder, R_028B70_DB_ALPHA_TO_MASK, pipeline->graphics.blend.db_alpha_to_mask);
+
+	if (pipeline->device->physical_device->has_rbplus) {
+
+		radv_pm4_start_reg_set(builder, R_028760_SX_MRT0_BLEND_OPT, 8);
+		radv_pm4_emit_array(builder, pipeline->graphics.blend.sx_mrt_blend_opt, 8);
+
+		radv_pm4_start_reg_set(builder, R_028754_SX_PS_DOWNCONVERT, 3);
+		radv_pm4_emit(builder, 0);	/* R_028754_SX_PS_DOWNCONVERT */
+		radv_pm4_emit(builder, 0);	/* R_028758_SX_BLEND_OPT_EPSILON */
+		radv_pm4_emit(builder, 0);	/* R_02875C_SX_BLEND_OPT_CONTROL */
+	}
+}
+
+
+static void
+radv_pipeline_generate_raster_state(struct radv_pm4_builder *builder,
+                                    struct radv_pipeline *pipeline)
+{
+	struct radv_raster_state *raster = &pipeline->graphics.raster;
+
+	radv_pm4_set_reg(builder, R_028810_PA_CL_CLIP_CNTL,
+			       raster->pa_cl_clip_cntl);
+	radv_pm4_set_reg(builder, R_0286D4_SPI_INTERP_CONTROL_0,
+			       raster->spi_interp_control);
+	radv_pm4_set_reg(builder, R_028BE4_PA_SU_VTX_CNTL,
+			       raster->pa_su_vtx_cntl);
+	radv_pm4_set_reg(builder, R_028814_PA_SU_SC_MODE_CNTL,
+			       raster->pa_su_sc_mode_cntl);
+}
+
+
+static void
+radv_pipeline_generate_multisample_state(struct radv_pm4_builder *builder,
+                                         struct radv_pipeline *pipeline)
+{
+	struct radv_multisample_state *ms = &pipeline->graphics.ms;
+
+	radv_pm4_start_reg_set(builder, R_028C38_PA_SC_AA_MASK_X0Y0_X1Y0, 2);
+	radv_pm4_emit(builder, ms->pa_sc_aa_mask[0]);
+	radv_pm4_emit(builder, ms->pa_sc_aa_mask[1]);
+
+	radv_pm4_set_reg(builder, R_028804_DB_EQAA, ms->db_eqaa);
+	radv_pm4_set_reg(builder, R_028A4C_PA_SC_MODE_CNTL_1, ms->pa_sc_mode_cntl_1);
+
+	if (pipeline->shaders[MESA_SHADER_FRAGMENT]->info.info.ps.needs_sample_positions) {
+		uint32_t offset;
+		struct ac_userdata_info *loc = radv_lookup_user_sgpr(pipeline, MESA_SHADER_FRAGMENT, AC_UD_PS_SAMPLE_POS_OFFSET);
+		uint32_t base_reg = pipeline->user_data_0[MESA_SHADER_FRAGMENT];
+		if (loc->sgpr_idx == -1)
+			return;
+		assert(loc->num_sgprs == 1);
+		assert(!loc->indirect);
+		switch (pipeline->graphics.ms.num_samples) {
+		default:
+			offset = 0;
+			break;
+		case 2:
+			offset = 1;
+			break;
+		case 4:
+			offset = 3;
+			break;
+		case 8:
+			offset = 7;
+			break;
+		case 16:
+			offset = 15;
+			break;
+		}
+
+		radv_pm4_set_reg(builder, base_reg + loc->sgpr_idx * 4, offset);
+	}
+}
+
+static void
+radv_pipeline_generate_hw_vs(struct radv_pm4_builder *builder,
+			     struct radv_pipeline *pipeline,
+			     struct radv_shader_variant *shader)
+{
+	uint64_t va = radv_buffer_get_va(shader->bo) + shader->bo_offset;
+
+	radv_pm4_set_reg(builder, R_0286C4_SPI_VS_OUT_CONFIG,
+			       pipeline->graphics.vs.spi_vs_out_config);
+
+	radv_pm4_set_reg(builder, R_02870C_SPI_SHADER_POS_FORMAT,
+			       pipeline->graphics.vs.spi_shader_pos_format);
+
+	radv_pm4_start_reg_set(builder, R_00B120_SPI_SHADER_PGM_LO_VS, 4);
+	radv_pm4_emit(builder, va >> 8);
+	radv_pm4_emit(builder, va >> 40);
+	radv_pm4_emit(builder, shader->rsrc1);
+	radv_pm4_emit(builder, shader->rsrc2);
+
+	radv_pm4_set_reg(builder, R_028818_PA_CL_VTE_CNTL,
+			       S_028818_VTX_W0_FMT(1) |
+			       S_028818_VPORT_X_SCALE_ENA(1) | S_028818_VPORT_X_OFFSET_ENA(1) |
+			       S_028818_VPORT_Y_SCALE_ENA(1) | S_028818_VPORT_Y_OFFSET_ENA(1) |
+			       S_028818_VPORT_Z_SCALE_ENA(1) | S_028818_VPORT_Z_OFFSET_ENA(1));
+
+
+	radv_pm4_set_reg(builder, R_02881C_PA_CL_VS_OUT_CNTL,
+			       pipeline->graphics.vs.pa_cl_vs_out_cntl);
+
+	if (pipeline->device->physical_device->rad_info.chip_class <= VI)
+		radv_pm4_set_reg(builder, R_028AB4_VGT_REUSE_OFF,
+				       pipeline->graphics.vs.vgt_reuse_off);
+}
+
+static void
+radv_pipeline_generate_hw_es(struct radv_pm4_builder *builder,
+			     struct radv_pipeline *pipeline,
+			     struct radv_shader_variant *shader)
+{
+	uint64_t va = radv_buffer_get_va(shader->bo) + shader->bo_offset;
+
+	radv_pm4_start_reg_set(builder, R_00B320_SPI_SHADER_PGM_LO_ES, 4);
+	radv_pm4_emit(builder, va >> 8);
+	radv_pm4_emit(builder, va >> 40);
+	radv_pm4_emit(builder, shader->rsrc1);
+	radv_pm4_emit(builder, shader->rsrc2);
+}
+
+static void
+radv_pipeline_generate_hw_ls(struct radv_pm4_builder *builder,
+			     struct radv_pipeline *pipeline,
+			     struct radv_shader_variant *shader)
+{
+	uint64_t va = radv_buffer_get_va(shader->bo) + shader->bo_offset;
+	uint32_t rsrc2 = shader->rsrc2;
+
+	radv_pm4_start_reg_set(builder, R_00B520_SPI_SHADER_PGM_LO_LS, 2);
+	radv_pm4_emit(builder, va >> 8);
+	radv_pm4_emit(builder, va >> 40);
+
+	rsrc2 |= S_00B52C_LDS_SIZE(pipeline->graphics.tess.lds_size);
+	if (pipeline->device->physical_device->rad_info.chip_class == CIK &&
+	    pipeline->device->physical_device->rad_info.family != CHIP_HAWAII)
+		radv_pm4_set_reg(builder, R_00B52C_SPI_SHADER_PGM_RSRC2_LS, rsrc2);
+
+	radv_pm4_start_reg_set(builder, R_00B528_SPI_SHADER_PGM_RSRC1_LS, 2);
+	radv_pm4_emit(builder, shader->rsrc1);
+	radv_pm4_emit(builder, rsrc2);
+}
+
+static void
+radv_pipeline_generate_hw_hs(struct radv_pm4_builder *builder,
+			     struct radv_pipeline *pipeline,
+			     struct radv_shader_variant *shader)
+{
+	uint64_t va = radv_buffer_get_va(shader->bo) + shader->bo_offset;
+
+	if (pipeline->device->physical_device->rad_info.chip_class >= GFX9) {
+		radv_pm4_start_reg_set(builder, R_00B410_SPI_SHADER_PGM_LO_LS, 2);
+		radv_pm4_emit(builder, va >> 8);
+		radv_pm4_emit(builder, va >> 40);
+
+		radv_pm4_start_reg_set(builder, R_00B428_SPI_SHADER_PGM_RSRC1_HS, 2);
+		radv_pm4_emit(builder, shader->rsrc1);
+		radv_pm4_emit(builder, shader->rsrc2 |
+		                            S_00B42C_LDS_SIZE(pipeline->graphics.tess.lds_size));
+	} else {
+		radv_pm4_start_reg_set(builder, R_00B420_SPI_SHADER_PGM_LO_HS, 4);
+		radv_pm4_emit(builder, va >> 8);
+		radv_pm4_emit(builder, va >> 40);
+		radv_pm4_emit(builder, shader->rsrc1);
+		radv_pm4_emit(builder, shader->rsrc2);
+	}
+}
+
+static void
+radv_pipeline_generate_vertex_shader(struct radv_pm4_builder *builder,
+				     struct radv_pipeline *pipeline)
+{
+	struct radv_shader_variant *vs;
+
+	radv_pm4_set_reg(builder, R_028A84_VGT_PRIMITIVEID_EN, pipeline->graphics.vgt_primitiveid_en);
+
+	/* Skip shaders merged into HS/GS */
+	vs = pipeline->shaders[MESA_SHADER_VERTEX];
+	if (!vs)
+		return;
+
+	if (vs->info.vs.as_ls)
+		radv_pipeline_generate_hw_ls(builder, pipeline, vs);
+	else if (vs->info.vs.as_es)
+		radv_pipeline_generate_hw_es(builder, pipeline, vs);
+	else
+		radv_pipeline_generate_hw_vs(builder, pipeline, vs);
+}
+
+static void
+radv_pipeline_generate_tess_shaders(struct radv_pm4_builder *builder,
+				    struct radv_pipeline *pipeline)
+{
+	if (!radv_pipeline_has_tess(pipeline))
+		return;
+
+	struct radv_shader_variant *tes, *tcs;
+
+	tcs = pipeline->shaders[MESA_SHADER_TESS_CTRL];
+	tes = pipeline->shaders[MESA_SHADER_TESS_EVAL];
+
+	if (tes) {
+		if (tes->info.tes.as_es)
+			radv_pipeline_generate_hw_es(builder, pipeline, tes);
+		else
+			radv_pipeline_generate_hw_vs(builder, pipeline, tes);
+	}
+
+	radv_pipeline_generate_hw_hs(builder, pipeline, tcs);
+
+	radv_pm4_set_reg(builder, R_028B6C_VGT_TF_PARAM,
+			       pipeline->graphics.tess.tf_param);
+
+	if (pipeline->device->physical_device->rad_info.chip_class >= CIK)
+		radv_pm4_set_reg_idx(builder, R_028B58_VGT_LS_HS_CONFIG, 2,
+					   pipeline->graphics.tess.ls_hs_config);
+	else
+		radv_pm4_set_reg(builder, R_028B58_VGT_LS_HS_CONFIG,
+				       pipeline->graphics.tess.ls_hs_config);
+
+	struct ac_userdata_info *loc;
+
+	loc = radv_lookup_user_sgpr(pipeline, MESA_SHADER_TESS_CTRL, AC_UD_TCS_OFFCHIP_LAYOUT);
+	if (loc->sgpr_idx != -1) {
+		uint32_t base_reg = pipeline->user_data_0[MESA_SHADER_TESS_CTRL];
+		assert(loc->num_sgprs == 4);
+		assert(!loc->indirect);
+		radv_pm4_start_reg_set(builder, base_reg + loc->sgpr_idx * 4, 4);
+		radv_pm4_emit(builder, pipeline->graphics.tess.offchip_layout);
+		radv_pm4_emit(builder, pipeline->graphics.tess.tcs_out_offsets);
+		radv_pm4_emit(builder, pipeline->graphics.tess.tcs_out_layout |
+			    pipeline->graphics.tess.num_tcs_input_cp << 26);
+		radv_pm4_emit(builder, pipeline->graphics.tess.tcs_in_layout);
+	}
+
+	loc = radv_lookup_user_sgpr(pipeline, MESA_SHADER_TESS_EVAL, AC_UD_TES_OFFCHIP_LAYOUT);
+	if (loc->sgpr_idx != -1) {
+		uint32_t base_reg = pipeline->user_data_0[MESA_SHADER_TESS_EVAL];
+		assert(loc->num_sgprs == 1);
+		assert(!loc->indirect);
+
+		radv_pm4_set_reg(builder, base_reg + loc->sgpr_idx * 4,
+				  pipeline->graphics.tess.offchip_layout);
+	}
+
+	loc = radv_lookup_user_sgpr(pipeline, MESA_SHADER_VERTEX, AC_UD_VS_LS_TCS_IN_LAYOUT);
+	if (loc->sgpr_idx != -1) {
+		uint32_t base_reg = pipeline->user_data_0[MESA_SHADER_VERTEX];
+		assert(loc->num_sgprs == 1);
+		assert(!loc->indirect);
+
+		radv_pm4_set_reg(builder, base_reg + loc->sgpr_idx * 4,
+				  pipeline->graphics.tess.tcs_in_layout);
+	}
+}
+
+static void
+radv_pipeline_generate_geometry_shader(struct radv_pm4_builder *builder,
+				       struct radv_pipeline *pipeline)
+{
+	struct radv_shader_variant *gs;
+	uint64_t va;
+
+	radv_pm4_set_reg(builder, R_028A40_VGT_GS_MODE, pipeline->graphics.vgt_gs_mode);
+
+	gs = pipeline->shaders[MESA_SHADER_GEOMETRY];
+	if (!gs)
+		return;
+
+	uint32_t gsvs_itemsize = gs->info.gs.max_gsvs_emit_size >> 2;
+
+	radv_pm4_start_reg_set(builder, R_028A60_VGT_GSVS_RING_OFFSET_1, 3);
+	radv_pm4_emit(builder, gsvs_itemsize);
+	radv_pm4_emit(builder, gsvs_itemsize);
+	radv_pm4_emit(builder, gsvs_itemsize);
+
+	radv_pm4_set_reg(builder, R_028AB0_VGT_GSVS_RING_ITEMSIZE, gsvs_itemsize);
+
+	radv_pm4_set_reg(builder, R_028B38_VGT_GS_MAX_VERT_OUT, gs->info.gs.vertices_out);
+
+	uint32_t gs_vert_itemsize = gs->info.gs.gsvs_vertex_size;
+	radv_pm4_start_reg_set(builder, R_028B5C_VGT_GS_VERT_ITEMSIZE, 4);
+	radv_pm4_emit(builder, gs_vert_itemsize >> 2);
+	radv_pm4_emit(builder, 0);
+	radv_pm4_emit(builder, 0);
+	radv_pm4_emit(builder, 0);
+
+	uint32_t gs_num_invocations = gs->info.gs.invocations;
+	radv_pm4_set_reg(builder, R_028B90_VGT_GS_INSTANCE_CNT,
+			       S_028B90_CNT(MIN2(gs_num_invocations, 127)) |
+			       S_028B90_ENABLE(gs_num_invocations > 0));
+
+	radv_pm4_set_reg(builder, R_028AAC_VGT_ESGS_RING_ITEMSIZE,
+			       pipeline->graphics.gs.vgt_esgs_ring_itemsize);
+
+	va = radv_buffer_get_va(gs->bo) + gs->bo_offset;
+
+	if (pipeline->device->physical_device->rad_info.chip_class >= GFX9) {
+		radv_pm4_start_reg_set(builder, R_00B210_SPI_SHADER_PGM_LO_ES, 2);
+		radv_pm4_emit(builder, va >> 8);
+		radv_pm4_emit(builder, va >> 40);
+
+		radv_pm4_start_reg_set(builder, R_00B228_SPI_SHADER_PGM_RSRC1_GS, 2);
+		radv_pm4_emit(builder, gs->rsrc1);
+		radv_pm4_emit(builder, gs->rsrc2 |
+		                            S_00B22C_LDS_SIZE(pipeline->graphics.gs.lds_size));
+
+		radv_pm4_set_reg(builder, R_028A44_VGT_GS_ONCHIP_CNTL, pipeline->graphics.gs.vgt_gs_onchip_cntl);
+		radv_pm4_set_reg(builder, R_028A94_VGT_GS_MAX_PRIMS_PER_SUBGROUP, pipeline->graphics.gs.vgt_gs_max_prims_per_subgroup);
+	} else {
+		radv_pm4_start_reg_set(builder, R_00B220_SPI_SHADER_PGM_LO_GS, 4);
+		radv_pm4_emit(builder, va >> 8);
+		radv_pm4_emit(builder, va >> 40);
+		radv_pm4_emit(builder, gs->rsrc1);
+		radv_pm4_emit(builder, gs->rsrc2);
+	}
+
+	radv_pipeline_generate_hw_vs(builder, pipeline, pipeline->gs_copy_shader);
+
+	struct ac_userdata_info *loc = radv_lookup_user_sgpr(pipeline, MESA_SHADER_GEOMETRY,
+							     AC_UD_GS_VS_RING_STRIDE_ENTRIES);
+	if (loc->sgpr_idx != -1) {
+		uint32_t stride = gs->info.gs.max_gsvs_emit_size;
+		uint32_t num_entries = 64;
+		bool is_vi = pipeline->device->physical_device->rad_info.chip_class >= VI;
+
+		if (is_vi)
+			num_entries *= stride;
+
+		stride = S_008F04_STRIDE(stride);
+		radv_pm4_start_reg_set(builder, R_00B230_SPI_SHADER_USER_DATA_GS_0 + loc->sgpr_idx * 4, 2);
+		radv_pm4_emit(builder, stride);
+		radv_pm4_emit(builder, num_entries);
+	}
+}
+
+
+static void
+radv_pipeline_generate_fragment_shader(struct radv_pm4_builder *builder,
+				       struct radv_pipeline *pipeline)
+{
+	struct radv_shader_variant *ps;
+	uint64_t va;
+	unsigned spi_baryc_cntl = S_0286E0_FRONT_FACE_ALL_BITS(1);
+	struct radv_blend_state *blend = &pipeline->graphics.blend;
+	assert (pipeline->shaders[MESA_SHADER_FRAGMENT]);
+
+	ps = pipeline->shaders[MESA_SHADER_FRAGMENT];
+	va = radv_buffer_get_va(ps->bo) + ps->bo_offset;
+
+	radv_pm4_start_reg_set(builder, R_00B020_SPI_SHADER_PGM_LO_PS, 4);
+	radv_pm4_emit(builder, va >> 8);
+	radv_pm4_emit(builder, va >> 40);
+	radv_pm4_emit(builder, ps->rsrc1);
+	radv_pm4_emit(builder, ps->rsrc2);
+
+	radv_pm4_set_reg(builder, R_02880C_DB_SHADER_CONTROL,
+			       pipeline->graphics.db_shader_control);
+
+	radv_pm4_set_reg(builder, R_0286CC_SPI_PS_INPUT_ENA,
+			       ps->config.spi_ps_input_ena);
+
+	radv_pm4_set_reg(builder, R_0286D0_SPI_PS_INPUT_ADDR,
+			       ps->config.spi_ps_input_addr);
+
+	if (ps->info.info.ps.force_persample)
+		spi_baryc_cntl |= S_0286E0_POS_FLOAT_LOCATION(2);
+
+	radv_pm4_set_reg(builder, R_0286D8_SPI_PS_IN_CONTROL,
+			       S_0286D8_NUM_INTERP(ps->info.fs.num_interp));
+
+	radv_pm4_set_reg(builder, R_0286E0_SPI_BARYC_CNTL, spi_baryc_cntl);
+
+	radv_pm4_set_reg(builder, R_028710_SPI_SHADER_Z_FORMAT,
+			       pipeline->graphics.shader_z_format);
+
+	radv_pm4_set_reg(builder, R_028714_SPI_SHADER_COL_FORMAT, blend->spi_shader_col_format);
+
+	radv_pm4_set_reg(builder, R_028238_CB_TARGET_MASK, blend->cb_target_mask);
+	radv_pm4_set_reg(builder, R_02823C_CB_SHADER_MASK, blend->cb_shader_mask);
+
+	if (pipeline->device->dfsm_allowed) {
+		/* optimise this? */
+		radv_pm4_emit(builder, PKT3(PKT3_EVENT_WRITE, 0, 0));
+		radv_pm4_emit(builder, EVENT_TYPE(V_028A90_FLUSH_DFSM) | EVENT_INDEX(0));
+	}
+
+	if (pipeline->graphics.ps_input_cntl_num) {
+		radv_pm4_start_reg_set(builder, R_028644_SPI_PS_INPUT_CNTL_0, pipeline->graphics.ps_input_cntl_num);
+		for (unsigned i = 0; i < pipeline->graphics.ps_input_cntl_num; i++) {
+			radv_pm4_emit(builder, pipeline->graphics.ps_input_cntl[i]);
+		}
+	}
+}
+
+static void
+radv_pipeline_generate_vgt_vertex_reuse(struct radv_pm4_builder *builder,
+					struct radv_pipeline *pipeline)
+{
+	if (pipeline->device->physical_device->rad_info.family < CHIP_POLARIS10)
+		return;
+
+	radv_pm4_set_reg(builder, R_028C58_VGT_VERTEX_REUSE_BLOCK_CNTL,
+			       pipeline->graphics.vtx_reuse_depth);
+}
+
+static void
+radv_pipeline_generate_binning_state(struct radv_pm4_builder *builder,
+				     struct radv_pipeline *pipeline)
+{
+	if (pipeline->device->physical_device->rad_info.chip_class < GFX9)
+		return;
+
+	radv_pm4_set_reg(builder, R_028C44_PA_SC_BINNER_CNTL_0,
+			       pipeline->graphics.bin.pa_sc_binner_cntl_0);
+	radv_pm4_set_reg(builder, R_028060_DB_DFSM_CONTROL,
+			       pipeline->graphics.bin.db_dfsm_control);
+}
+
+static void
+radv_pipeline_generate_pm4(struct radv_pipeline *pipeline) {
+	struct radv_pm4_builder builder;
+	
+	radv_pm4_init(&builder, &pipeline->pm4);
+
+	radv_pipeline_generate_depth_stencil_state(&builder, pipeline);
+	radv_pipeline_generate_blend_state(&builder, pipeline);
+	radv_pipeline_generate_raster_state(&builder, pipeline);
+	radv_pipeline_generate_multisample_state(&builder, pipeline);
+	radv_pipeline_generate_vertex_shader(&builder, pipeline);
+	radv_pipeline_generate_tess_shaders(&builder, pipeline);
+	radv_pipeline_generate_geometry_shader(&builder, pipeline);
+	radv_pipeline_generate_fragment_shader(&builder, pipeline);
+	radv_pipeline_generate_vgt_vertex_reuse(&builder, pipeline);
+	radv_pipeline_generate_binning_state(&builder, pipeline);
+
+	radv_pm4_set_reg(&builder, R_0286E8_SPI_TMPRING_SIZE,
+			 S_0286E8_WAVES(pipeline->max_waves) |
+			 S_0286E8_WAVESIZE(pipeline->scratch_bytes_per_wave >> 10));
+
+	radv_pm4_set_reg(&builder, R_028B54_VGT_SHADER_STAGES_EN, pipeline->graphics.vgt_shader_stages_en);
+
+	if (pipeline->device->physical_device->rad_info.chip_class >= CIK) {
+		radv_pm4_set_reg_idx(&builder, R_030908_VGT_PRIMITIVE_TYPE, 1, pipeline->graphics.prim);
+	} else {
+		radv_pm4_set_reg(&builder, R_008958_VGT_PRIMITIVE_TYPE, pipeline->graphics.prim);
+	}
+	radv_pm4_set_reg(&builder, R_028A6C_VGT_GS_OUT_PRIM_TYPE, pipeline->graphics.gs_out);
+
+	radv_pm4_set_reg(&builder, R_02820C_PA_SC_CLIPRECT_RULE, pipeline->graphics.pa_sc_cliprect_rule);
+
+	radv_pm4_finish(&builder);
+}
+
 static VkResult
 radv_pipeline_init(struct radv_pipeline *pipeline,
 		   struct radv_device *device,
@@ -2707,6 +3186,8 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	radv_compute_binning_state(pipeline, pCreateInfo);
 
 	result = radv_pipeline_scratch_init(device, pipeline);
+	radv_pipeline_generate_pm4(pipeline);
+
 	return result;
 }
 

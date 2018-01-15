@@ -1146,30 +1146,8 @@ radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
 		typed_memcpy(dynamic->discard_rectangle.rectangles,
 		             discard_rectangle_info->pDiscardRectangles,
 		             discard_rectangle_info->discardRectangleCount);
-
-		unsigned mask = 0;
-
-		for (unsigned i = 0; i < (1u << MAX_DISCARD_RECTANGLES); ++i) {
-			/* Interpret i as a bitmask, and then set the bit in the mask if
-			 * that combination of rectangles in which the pixel is contained
-			 * should pass the cliprect test. */
-			unsigned relevant_subset = i & ((1u << discard_rectangle_info->discardRectangleCount) - 1);
-
-			if (discard_rectangle_info->discardRectangleMode == VK_DISCARD_RECTANGLE_MODE_INCLUSIVE_EXT &&
-			    !relevant_subset)
-				continue;
-
-			if (discard_rectangle_info->discardRectangleMode == VK_DISCARD_RECTANGLE_MODE_EXCLUSIVE_EXT &&
-			    relevant_subset)
-				continue;
-
-			mask |= 1u << i;
-		}
-		pipeline->graphics.pa_sc_cliprect_rule = mask;
-	} else {
-		/* Allow from all rectangle combinations */
-		pipeline->graphics.pa_sc_cliprect_rule = 0xffff;
 	}
+
 	pipeline->dynamic_state.mask = states;
 }
 
@@ -2914,6 +2892,37 @@ radv_compute_vgt_shader_stages_en(const struct radv_pipeline *pipeline)
 	return stages;
 }
 
+static uint32_t
+radv_compute_cliprect_rule(const VkGraphicsPipelineCreateInfo *pCreateInfo)
+{
+	const  VkPipelineDiscardRectangleStateCreateInfoEXT *discard_rectangle_info =
+			vk_find_struct_const(pCreateInfo->pNext, PIPELINE_DISCARD_RECTANGLE_STATE_CREATE_INFO_EXT);
+
+	if (!discard_rectangle_info)
+		return 0xffff;
+
+	unsigned mask = 0;
+
+	for (unsigned i = 0; i < (1u << MAX_DISCARD_RECTANGLES); ++i) {
+		/* Interpret i as a bitmask, and then set the bit in the mask if
+		 * that combination of rectangles in which the pixel is contained
+		 * should pass the cliprect test. */
+		unsigned relevant_subset = i & ((1u << discard_rectangle_info->discardRectangleCount) - 1);
+
+		if (discard_rectangle_info->discardRectangleMode == VK_DISCARD_RECTANGLE_MODE_INCLUSIVE_EXT &&
+		    !relevant_subset)
+			continue;
+
+		if (discard_rectangle_info->discardRectangleMode == VK_DISCARD_RECTANGLE_MODE_EXCLUSIVE_EXT &&
+		    relevant_subset)
+			continue;
+
+		mask |= 1u << i;
+	}
+
+	return mask;
+}
+
 static void
 radv_pipeline_generate_pm4(struct radv_pipeline *pipeline,
                            const VkGraphicsPipelineCreateInfo *pCreateInfo,
@@ -2950,7 +2959,7 @@ radv_pipeline_generate_pm4(struct radv_pipeline *pipeline,
 	}
 	radv_pm4_set_reg(&builder, R_028A6C_VGT_GS_OUT_PRIM_TYPE, pipeline->graphics.gs_out);
 
-	radv_pm4_set_reg(&builder, R_02820C_PA_SC_CLIPRECT_RULE, pipeline->graphics.pa_sc_cliprect_rule);
+	radv_pm4_set_reg(&builder, R_02820C_PA_SC_CLIPRECT_RULE, radv_compute_cliprect_rule(pCreateInfo));
 
 	radv_pm4_finish(&builder);
 }

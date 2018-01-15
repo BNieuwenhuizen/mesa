@@ -1541,26 +1541,6 @@ static const struct ac_vs_output_info *get_vs_output_info(const struct radv_pipe
 		return &pipeline->shaders[MESA_SHADER_VERTEX]->info.vs.outinfo;
 }
 
-static void calculate_vgt_gs_mode(struct radv_pipeline *pipeline)
-{
-	const struct ac_vs_output_info *outinfo = get_vs_output_info(pipeline);
-
-	pipeline->graphics.vgt_primitiveid_en = false;
-	pipeline->graphics.vgt_gs_mode = 0;
-
-	if (radv_pipeline_has_gs(pipeline)) {
-		struct radv_shader_variant *gs =
-			pipeline->shaders[MESA_SHADER_GEOMETRY];
-
-		pipeline->graphics.vgt_gs_mode =
-			ac_vgt_gs_mode(gs->info.gs.vertices_out,
-				       pipeline->device->physical_device->rad_info.chip_class);
-	} else if (outinfo->export_prim_id) {
-		pipeline->graphics.vgt_gs_mode = S_028A40_MODE(V_028A40_GS_SCENARIO_A);
-		pipeline->graphics.vgt_primitiveid_en = true;
-	}
-}
-
 static void
 radv_link_shaders(struct radv_pipeline *pipeline, nir_shader **shaders)
 {
@@ -2433,6 +2413,30 @@ radv_pipeline_generate_multisample_state(struct radv_pm4_builder *builder,
 }
 
 static void
+radv_pipeline_generate_vgt_gs_mode(struct radv_pm4_builder *builder,
+                                   const struct radv_pipeline *pipeline)
+{
+	const struct ac_vs_output_info *outinfo = get_vs_output_info(pipeline);
+
+	uint32_t vgt_primitiveid_en = false;
+	uint32_t vgt_gs_mode = 0;
+
+	if (radv_pipeline_has_gs(pipeline)) {
+		const struct radv_shader_variant *gs =
+			pipeline->shaders[MESA_SHADER_GEOMETRY];
+
+		vgt_gs_mode = ac_vgt_gs_mode(gs->info.gs.vertices_out,
+		                             pipeline->device->physical_device->rad_info.chip_class);
+	} else if (outinfo->export_prim_id) {
+		vgt_gs_mode = S_028A40_MODE(V_028A40_GS_SCENARIO_A);
+		vgt_primitiveid_en = true;
+	}
+
+	radv_pm4_set_reg(builder, R_028A84_VGT_PRIMITIVEID_EN, vgt_primitiveid_en);
+	radv_pm4_set_reg(builder, R_028A40_VGT_GS_MODE, vgt_gs_mode);
+}
+
+static void
 radv_pipeline_generate_hw_vs(struct radv_pm4_builder *builder,
 			     struct radv_pipeline *pipeline,
 			     struct radv_shader_variant *shader)
@@ -2562,8 +2566,6 @@ radv_pipeline_generate_vertex_shader(struct radv_pm4_builder *builder,
 {
 	struct radv_shader_variant *vs;
 
-	radv_pm4_set_reg(builder, R_028A84_VGT_PRIMITIVEID_EN, pipeline->graphics.vgt_primitiveid_en);
-
 	/* Skip shaders merged into HS/GS */
 	vs = pipeline->shaders[MESA_SHADER_VERTEX];
 	if (!vs)
@@ -2651,8 +2653,6 @@ radv_pipeline_generate_geometry_shader(struct radv_pm4_builder *builder,
 {
 	struct radv_shader_variant *gs;
 	uint64_t va;
-
-	radv_pm4_set_reg(builder, R_028A40_VGT_GS_MODE, pipeline->graphics.vgt_gs_mode);
 
 	gs = pipeline->shaders[MESA_SHADER_GEOMETRY];
 	if (!gs)
@@ -2928,6 +2928,7 @@ radv_pipeline_generate_pm4(struct radv_pipeline *pipeline,
 	radv_pipeline_generate_blend_state(&builder, pipeline->device, blend);
 	radv_pipeline_generate_raster_state(&builder, pipeline);
 	radv_pipeline_generate_multisample_state(&builder, pipeline);
+	radv_pipeline_generate_vgt_gs_mode(&builder, pipeline);
 	radv_pipeline_generate_vertex_shader(&builder, pipeline, tess);
 	radv_pipeline_generate_tess_shaders(&builder, pipeline, tess);
 	radv_pipeline_generate_geometry_shader(&builder, pipeline);
@@ -3161,8 +3162,6 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 		    !ps->info.fs.writes_sample_mask)
 			blend.spi_shader_col_format = V_028714_SPI_SHADER_32_R;
 	}
-
-	calculate_vgt_gs_mode(pipeline);
 
 	for (unsigned i = 0; i < MESA_SHADER_STAGES; i++) {
 		if (pipeline->shaders[i]) {

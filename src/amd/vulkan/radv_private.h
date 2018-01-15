@@ -1215,8 +1215,6 @@ struct radv_pipeline {
 			struct radv_gs_state gs;
 			unsigned prim;
 			unsigned gs_out;
-			uint32_t vgt_gs_mode;
-			bool vgt_primitiveid_en;
 			bool prim_restart_enable;
 			unsigned esgs_ring_size;
 			unsigned gsvs_ring_size;

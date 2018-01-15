@@ -48,6 +48,17 @@
 #include "ac_exp_param.h"
 #include "ac_shader_util.h"
 
+struct radv_blend_state {
+	uint32_t cb_color_control;
+	uint32_t cb_target_mask;
+	uint32_t sx_mrt_blend_opt[8];
+	uint32_t cb_blend_control[8];
+
+	uint32_t spi_shader_col_format;
+	uint32_t cb_shader_mask;
+	uint32_t db_alpha_to_mask;
+};
+
 static void
 radv_pipeline_destroy(struct radv_device *device,
                       struct radv_pipeline *pipeline,
@@ -424,11 +435,11 @@ radv_pipeline_compute_spi_color_formats(struct radv_pipeline *pipeline,
 					uint32_t blend_enable,
 					uint32_t blend_need_alpha,
 					bool single_cb_enable,
-					bool blend_mrt0_is_dual_src)
+					bool blend_mrt0_is_dual_src,
+					struct radv_blend_state *blend)
 {
 	RADV_FROM_HANDLE(radv_render_pass, pass, pCreateInfo->renderPass);
 	struct radv_subpass *subpass = pass->subpasses + pCreateInfo->subpass;
-	struct radv_blend_state *blend = &pipeline->graphics.blend;
 	unsigned col_format = 0;
 
 	for (unsigned i = 0; i < (single_cb_enable ? 1 : subpass->color_count); ++i) {
@@ -511,14 +522,14 @@ radv_pipeline_compute_get_int_clamp(const VkGraphicsPipelineCreateInfo *pCreateI
 	}
 }
 
-static void
+static struct radv_blend_state
 radv_pipeline_init_blend_state(struct radv_pipeline *pipeline,
 			       const VkGraphicsPipelineCreateInfo *pCreateInfo,
 			       const struct radv_graphics_pipeline_create_info *extra)
 {
 	const VkPipelineColorBlendStateCreateInfo *vkblend = pCreateInfo->pColorBlendState;
 	const VkPipelineMultisampleStateCreateInfo *vkms = pCreateInfo->pMultisampleState;
-	struct radv_blend_state *blend = &pipeline->graphics.blend;
+	struct radv_blend_state blend = {0};
 	unsigned mode = V_028808_CB_NORMAL;
 	uint32_t blend_enable = 0, blend_need_alpha = 0;
 	bool blend_mrt0_is_dual_src = false;
@@ -526,28 +537,28 @@ radv_pipeline_init_blend_state(struct radv_pipeline *pipeline,
 	bool single_cb_enable = false;
 
 	if (!vkblend)
-		return;
+		return blend;
 
 	if (extra && extra->custom_blend_mode) {
 		single_cb_enable = true;
 		mode = extra->custom_blend_mode;
 	}
-	blend->cb_color_control = 0;
+	blend.cb_color_control = 0;
 	if (vkblend->logicOpEnable)
-		blend->cb_color_control |= S_028808_ROP3(vkblend->logicOp | (vkblend->logicOp << 4));
+		blend.cb_color_control |= S_028808_ROP3(vkblend->logicOp | (vkblend->logicOp << 4));
 	else
-		blend->cb_color_control |= S_028808_ROP3(0xcc);
+		blend.cb_color_control |= S_028808_ROP3(0xcc);
 
-	blend->db_alpha_to_mask = S_028B70_ALPHA_TO_MASK_OFFSET0(2) |
+	blend.db_alpha_to_mask = S_028B70_ALPHA_TO_MASK_OFFSET0(2) |
 		S_028B70_ALPHA_TO_MASK_OFFSET1(2) |
 		S_028B70_ALPHA_TO_MASK_OFFSET2(2) |
 		S_028B70_ALPHA_TO_MASK_OFFSET3(2);
 
 	if (vkms && vkms->alphaToCoverageEnable) {
-		blend->db_alpha_to_mask |= S_028B70_ALPHA_TO_MASK_ENABLE(1);
+		blend.db_alpha_to_mask |= S_028B70_ALPHA_TO_MASK_ENABLE(1);
 	}
 
-	blend->cb_target_mask = 0;
+	blend.cb_target_mask = 0;
 	for (i = 0; i < vkblend->attachmentCount; i++) {
 		const VkPipelineColorBlendAttachmentState *att = &vkblend->pAttachments[i];
 		unsigned blend_cntl = 0;
@@ -559,14 +570,14 @@ radv_pipeline_init_blend_state(struct radv_pipeline *pipeline,
 		VkBlendFactor srcA = att->srcAlphaBlendFactor;
 		VkBlendFactor dstA = att->dstAlphaBlendFactor;
 
-		blend->sx_mrt_blend_opt[i] = S_028760_COLOR_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED) | S_028760_ALPHA_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED);
+		blend.sx_mrt_blend_opt[i] = S_028760_COLOR_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED) | S_028760_ALPHA_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED);
 
 		if (!att->colorWriteMask)
 			continue;
 
-		blend->cb_target_mask |= (unsigned)att->colorWriteMask << (4 * i);
+		blend.cb_target_mask |= (unsigned)att->colorWriteMask << (4 * i);
 		if (!att->blendEnable) {
-			blend->cb_blend_control[i] = blend_cntl;
+			blend.cb_blend_control[i] = blend_cntl;
 			continue;
 		}
 
@@ -620,7 +631,7 @@ radv_pipeline_init_blend_state(struct radv_pipeline *pipeline,
 			dstRGB_opt = V_028760_BLEND_OPT_PRESERVE_NONE_IGNORE_A0;
 
 		/* Set the final value. */
-		blend->sx_mrt_blend_opt[i] =
+		blend.sx_mrt_blend_opt[i] =
 			S_028760_COLOR_SRC_OPT(srcRGB_opt) |
 			S_028760_COLOR_DST_OPT(dstRGB_opt) |
 			S_028760_COLOR_COMB_FCN(si_translate_blend_opt_function(eqRGB)) |
@@ -638,7 +649,7 @@ radv_pipeline_init_blend_state(struct radv_pipeline *pipeline,
 			blend_cntl |= S_028780_ALPHA_SRCBLEND(si_translate_blend_factor(srcA));
 			blend_cntl |= S_028780_ALPHA_DESTBLEND(si_translate_blend_factor(dstA));
 		}
-		blend->cb_blend_control[i] = blend_cntl;
+		blend.cb_blend_control[i] = blend_cntl;
 
 		blend_enable |= 1 << i;
 
@@ -651,21 +662,23 @@ radv_pipeline_init_blend_state(struct radv_pipeline *pipeline,
 			blend_need_alpha |= 1 << i;
 	}
 	for (i = vkblend->attachmentCount; i < 8; i++) {
-		blend->cb_blend_control[i] = 0;
-		blend->sx_mrt_blend_opt[i] = S_028760_COLOR_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED) | S_028760_ALPHA_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED);
+		blend.cb_blend_control[i] = 0;
+		blend.sx_mrt_blend_opt[i] = S_028760_COLOR_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED) | S_028760_ALPHA_COMB_FCN(V_028760_OPT_COMB_BLEND_DISABLED);
 	}
 
 	/* disable RB+ for now */
 	if (pipeline->device->physical_device->has_rbplus)
-		blend->cb_color_control |= S_028808_DISABLE_DUAL_QUAD(1);
+		blend.cb_color_control |= S_028808_DISABLE_DUAL_QUAD(1);
 
-	if (blend->cb_target_mask)
-		blend->cb_color_control |= S_028808_MODE(mode);
+	if (blend.cb_target_mask)
+		blend.cb_color_control |= S_028808_MODE(mode);
 	else
-		blend->cb_color_control |= S_028808_MODE(V_028808_CB_DISABLE);
+		blend.cb_color_control |= S_028808_MODE(V_028808_CB_DISABLE);
 
 	radv_pipeline_compute_spi_color_formats(pipeline, pCreateInfo,
-						blend_enable, blend_need_alpha, single_cb_enable, blend_mrt0_is_dual_src);
+						blend_enable, blend_need_alpha, single_cb_enable, blend_mrt0_is_dual_src,
+						&blend);
+	return blend;
 }
 
 static uint32_t si_translate_stencil_op(enum VkStencilOp op)
@@ -1581,6 +1594,7 @@ radv_link_shaders(struct radv_pipeline *pipeline, nir_shader **shaders)
 static struct radv_pipeline_key
 radv_generate_graphics_pipeline_key(struct radv_pipeline *pipeline,
                                     const VkGraphicsPipelineCreateInfo *pCreateInfo,
+                                    const struct radv_blend_state *blend,
                                     bool has_view_index)
 {
 	const VkPipelineVertexInputStateCreateInfo *input_state =
@@ -1605,7 +1619,7 @@ radv_generate_graphics_pipeline_key(struct radv_pipeline *pipeline,
 	    pCreateInfo->pMultisampleState->rasterizationSamples > 1)
 		key.multisample = true;
 
-	key.col_format = pipeline->graphics.blend.spi_shader_col_format;
+	key.col_format = blend->spi_shader_col_format;
 	if (pipeline->device->physical_device->rad_info.chip_class < VI)
 		radv_pipeline_compute_get_int_clamp(pCreateInfo, &key.is_int8, &key.is_int10);
 
@@ -2158,24 +2172,26 @@ radv_compute_bin_size(struct radv_pipeline *pipeline, const VkGraphicsPipelineCr
 	unsigned total_samples = 1u << G_028BE0_MSAA_NUM_SAMPLES(pipeline->graphics.ms.pa_sc_mode_cntl_1);
 	unsigned ps_iter_samples = 1u << G_028804_PS_ITER_SAMPLES(pipeline->graphics.ms.db_eqaa);
 	unsigned effective_samples = total_samples;
-	unsigned cb_target_mask = pipeline->graphics.blend.cb_target_mask;
 	unsigned color_bytes_per_pixel = 0;
 
-	for (unsigned i = 0; i < subpass->color_count; i++) {
-		if (!(cb_target_mask & (0xf << (i * 4))))
-			continue;
+	const VkPipelineColorBlendStateCreateInfo *vkblend = pCreateInfo->pColorBlendState;
+	if (vkblend) {
+		for (unsigned i = 0; i < subpass->color_count; i++) {
+			if (!vkblend->pAttachments[i].colorWriteMask)
+				continue;
 
-		if (subpass->color_attachments[i].attachment == VK_ATTACHMENT_UNUSED)
-			continue;
+			if (subpass->color_attachments[i].attachment == VK_ATTACHMENT_UNUSED)
+				continue;
 
-		VkFormat format = pass->attachments[subpass->color_attachments[i].attachment].format;
-		color_bytes_per_pixel += vk_format_get_blocksize(format);
+			VkFormat format = pass->attachments[subpass->color_attachments[i].attachment].format;
+			color_bytes_per_pixel += vk_format_get_blocksize(format);
+		}
+
+		/* MSAA images typically don't use all samples all the time. */
+		if (effective_samples >= 2 && ps_iter_samples <= 1)
+			effective_samples = 2;
+		color_bytes_per_pixel *= effective_samples;
 	}
-
-	/* MSAA images typically don't use all samples all the time. */
-	if (effective_samples >= 2 && ps_iter_samples <= 1)
-		effective_samples = 2;
-	color_bytes_per_pixel *= effective_samples;
 
 	const struct radv_bin_size_entry *color_entry = color_size_table[log_num_rb_per_se][log_num_se];
 	while(color_entry->bpp <= color_bytes_per_pixel)
@@ -2316,24 +2332,29 @@ radv_pipeline_generate_depth_stencil_state(struct radv_pm4_builder *builder,
 
 static void
 radv_pipeline_generate_blend_state(struct radv_pm4_builder *builder,
-                                   struct radv_pipeline *pipeline)
+                                   const struct radv_device *device,
+				   const struct radv_blend_state *blend)
 {
 	radv_pm4_start_reg_set(builder, R_028780_CB_BLEND0_CONTROL, 8);
-	radv_pm4_emit_array(builder, pipeline->graphics.blend.cb_blend_control,
+	radv_pm4_emit_array(builder, blend->cb_blend_control,
 			  8);
-	radv_pm4_set_reg(builder, R_028808_CB_COLOR_CONTROL, pipeline->graphics.blend.cb_color_control);
-	radv_pm4_set_reg(builder, R_028B70_DB_ALPHA_TO_MASK, pipeline->graphics.blend.db_alpha_to_mask);
+	radv_pm4_set_reg(builder, R_028808_CB_COLOR_CONTROL, blend->cb_color_control);
+	radv_pm4_set_reg(builder, R_028B70_DB_ALPHA_TO_MASK, blend->db_alpha_to_mask);
 
-	if (pipeline->device->physical_device->has_rbplus) {
-
+	if (device->physical_device->has_rbplus) {
 		radv_pm4_start_reg_set(builder, R_028760_SX_MRT0_BLEND_OPT, 8);
-		radv_pm4_emit_array(builder, pipeline->graphics.blend.sx_mrt_blend_opt, 8);
+		radv_pm4_emit_array(builder, blend->sx_mrt_blend_opt, 8);
 
 		radv_pm4_start_reg_set(builder, R_028754_SX_PS_DOWNCONVERT, 3);
 		radv_pm4_emit(builder, 0);	/* R_028754_SX_PS_DOWNCONVERT */
 		radv_pm4_emit(builder, 0);	/* R_028758_SX_BLEND_OPT_EPSILON */
 		radv_pm4_emit(builder, 0);	/* R_02875C_SX_BLEND_OPT_CONTROL */
 	}
+
+	radv_pm4_set_reg(builder, R_028714_SPI_SHADER_COL_FORMAT, blend->spi_shader_col_format);
+
+	radv_pm4_set_reg(builder, R_028238_CB_TARGET_MASK, blend->cb_target_mask);
+	radv_pm4_set_reg(builder, R_02823C_CB_SHADER_MASK, blend->cb_shader_mask);
 }
 
 
@@ -2793,7 +2814,6 @@ radv_pipeline_generate_fragment_shader(struct radv_pm4_builder *builder,
 	struct radv_shader_variant *ps;
 	uint64_t va;
 	unsigned spi_baryc_cntl = S_0286E0_FRONT_FACE_ALL_BITS(1);
-	struct radv_blend_state *blend = &pipeline->graphics.blend;
 	assert (pipeline->shaders[MESA_SHADER_FRAGMENT]);
 
 	ps = pipeline->shaders[MESA_SHADER_FRAGMENT];
@@ -2826,11 +2846,6 @@ radv_pipeline_generate_fragment_shader(struct radv_pm4_builder *builder,
 	                 ac_get_spi_shader_z_format(ps->info.fs.writes_z,
 	                                            ps->info.fs.writes_stencil,
 	                                            ps->info.fs.writes_sample_mask));
-
-	radv_pm4_set_reg(builder, R_028714_SPI_SHADER_COL_FORMAT, blend->spi_shader_col_format);
-
-	radv_pm4_set_reg(builder, R_028238_CB_TARGET_MASK, blend->cb_target_mask);
-	radv_pm4_set_reg(builder, R_02823C_CB_SHADER_MASK, blend->cb_shader_mask);
 
 	if (pipeline->device->dfsm_allowed) {
 		/* optimise this? */
@@ -2884,13 +2899,14 @@ radv_compute_vgt_shader_stages_en(const struct radv_pipeline *pipeline)
 static void
 radv_pipeline_generate_pm4(struct radv_pipeline *pipeline,
                            const VkGraphicsPipelineCreateInfo *pCreateInfo,
-                           const struct radv_graphics_pipeline_create_info *extra) {
+                           const struct radv_graphics_pipeline_create_info *extra,
+			   const struct radv_blend_state *blend) {
 	struct radv_pm4_builder builder;
 	
 	radv_pm4_init(&builder, &pipeline->pm4);
 
 	radv_pipeline_generate_depth_stencil_state(&builder, pipeline, pCreateInfo, extra);
-	radv_pipeline_generate_blend_state(&builder, pipeline);
+	radv_pipeline_generate_blend_state(&builder, pipeline->device, blend);
 	radv_pipeline_generate_raster_state(&builder, pipeline);
 	radv_pipeline_generate_multisample_state(&builder, pipeline);
 	radv_pipeline_generate_vertex_shader(&builder, pipeline);
@@ -3030,7 +3046,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	pipeline->layout = radv_pipeline_layout_from_handle(pCreateInfo->layout);
 	assert(pipeline->layout);
 
-	radv_pipeline_init_blend_state(pipeline, pCreateInfo, extra);
+	struct radv_blend_state blend = radv_pipeline_init_blend_state(pipeline, pCreateInfo, extra);
 
 	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
 	for (uint32_t i = 0; i < pCreateInfo->stageCount; i++) {
@@ -3039,7 +3055,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	}
 
 	radv_create_shaders(pipeline, device, cache, 
-	                    radv_generate_graphics_pipeline_key(pipeline, pCreateInfo, has_view_index),
+	                    radv_generate_graphics_pipeline_key(pipeline, pCreateInfo, &blend, has_view_index),
 	                    pStages);
 
 	radv_pipeline_init_raster_state(pipeline, pCreateInfo);
@@ -3077,11 +3093,11 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	 * Don't add this to CB_SHADER_MASK.
 	 */
 	struct radv_shader_variant *ps = pipeline->shaders[MESA_SHADER_FRAGMENT];
-	if (!pipeline->graphics.blend.spi_shader_col_format) {
+	if (!blend.spi_shader_col_format) {
 		if (!ps->info.fs.writes_z &&
 		    !ps->info.fs.writes_stencil &&
 		    !ps->info.fs.writes_sample_mask)
-			pipeline->graphics.blend.spi_shader_col_format = V_028714_SPI_SHADER_32_R;
+			blend.spi_shader_col_format = V_028714_SPI_SHADER_32_R;
 	}
 
 	calculate_vgt_gs_mode(pipeline);
@@ -3163,7 +3179,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	}
 
 	result = radv_pipeline_scratch_init(device, pipeline);
-	radv_pipeline_generate_pm4(pipeline, pCreateInfo, extra);
+	radv_pipeline_generate_pm4(pipeline, pCreateInfo, extra, &blend);
 
 	return result;
 }

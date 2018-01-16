@@ -1014,11 +1014,43 @@ static unsigned radv_dynamic_state_mask(VkDynamicState state)
 	}
 }
 
-static void
-radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
-				 const VkGraphicsPipelineCreateInfo *pCreateInfo)
+static uint32_t radv_pipeline_needed_dynamic_state(const VkGraphicsPipelineCreateInfo *pCreateInfo)
 {
 	uint32_t states = RADV_DYNAMIC_ALL;
+
+	if (!pCreateInfo->pRasterizationState->depthBiasEnable)
+		states &= ~RADV_DYNAMIC_DEPTH_BIAS;
+
+	if (!pCreateInfo->pDepthStencilState ||
+	    !pCreateInfo->pDepthStencilState->depthBoundsTestEnable)
+		states &= ~RADV_DYNAMIC_DEPTH_BOUNDS;
+
+	if (!pCreateInfo->pDepthStencilState ||
+	    !pCreateInfo->pDepthStencilState->stencilTestEnable)
+		states &= ~(RADV_DYNAMIC_STENCIL_COMPARE_MASK |
+		            RADV_DYNAMIC_STENCIL_WRITE_MASK |
+		            RADV_DYNAMIC_STENCIL_REFERENCE);
+
+	if (!vk_find_struct_const(pCreateInfo->pNext, PIPELINE_DISCARD_RECTANGLE_STATE_CREATE_INFO_EXT))
+		states &= ~RADV_DYNAMIC_DISCARD_RECTANGLE;
+
+	/* TODO: blend constants & line width. */
+
+	/* If rasterization is disabled we do not care about any of the dynamic states,
+	 * since they are all rasterization related only. */
+	if (pCreateInfo->pRasterizationState->rasterizerDiscardEnable)
+		states = 0;
+
+	return states;
+}
+
+
+static void
+radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
+				 const VkGraphicsPipelineCreateInfo *pCreateInfo,
+				 uint32_t needed_state)
+{
+	uint32_t states = needed_state;
 	RADV_FROM_HANDLE(radv_render_pass, pass, pCreateInfo->renderPass);
 	struct radv_subpass *subpass = &pass->subpasses[pCreateInfo->subpass];
 
@@ -1033,26 +1065,23 @@ radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
 
 	struct radv_dynamic_state *dynamic = &pipeline->dynamic_state;
 
-	/* Section 9.2 of the Vulkan 1.0.15 spec says:
-	 *
-	 *    pViewportState is [...] NULL if the pipeline
-	 *    has rasterization disabled.
-	 */
-	if (!pCreateInfo->pRasterizationState->rasterizerDiscardEnable) {
+	if (needed_state & RADV_DYNAMIC_VIEWPORT) {
 		assert(pCreateInfo->pViewportState);
 
 		dynamic->viewport.count = pCreateInfo->pViewportState->viewportCount;
 		if (states & RADV_DYNAMIC_VIEWPORT) {
 			typed_memcpy(dynamic->viewport.viewports,
-				     pCreateInfo->pViewportState->pViewports,
-				     pCreateInfo->pViewportState->viewportCount);
+			             pCreateInfo->pViewportState->pViewports,
+			             pCreateInfo->pViewportState->viewportCount);
 		}
+	}
 
+	if (needed_state & RADV_DYNAMIC_SCISSOR) {
 		dynamic->scissor.count = pCreateInfo->pViewportState->scissorCount;
 		if (states & RADV_DYNAMIC_SCISSOR) {
 			typed_memcpy(dynamic->scissor.scissors,
-				     pCreateInfo->pViewportState->pScissors,
-				     pCreateInfo->pViewportState->scissorCount);
+			             pCreateInfo->pViewportState->pScissors,
+			             pCreateInfo->pViewportState->scissorCount);
 		}
 	}
 
@@ -1103,8 +1132,7 @@ radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
 	 *    disabled or if the subpass of the render pass the pipeline is created
 	 *    against does not use a depth/stencil attachment.
 	 */
-	if (!pCreateInfo->pRasterizationState->rasterizerDiscardEnable &&
-	    subpass->depth_stencil_attachment.attachment != VK_ATTACHMENT_UNUSED) {
+	if (subpass->depth_stencil_attachment.attachment != VK_ATTACHMENT_UNUSED) {
 		assert(pCreateInfo->pDepthStencilState);
 
 		if (states & RADV_DYNAMIC_DEPTH_BOUNDS) {
@@ -1138,7 +1166,7 @@ radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
 
 	const  VkPipelineDiscardRectangleStateCreateInfoEXT *discard_rectangle_info =
 			vk_find_struct_const(pCreateInfo->pNext, PIPELINE_DISCARD_RECTANGLE_STATE_CREATE_INFO_EXT);
-	if (discard_rectangle_info) {
+	if (states & RADV_DYNAMIC_DISCARD_RECTANGLE) {
 		dynamic->discard_rectangle.count = discard_rectangle_info->discardRectangleCount;
 		typed_memcpy(dynamic->discard_rectangle.rectangles,
 		             discard_rectangle_info->pDiscardRectangles,
@@ -1164,8 +1192,6 @@ radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
 		}
 		pipeline->graphics.pa_sc_cliprect_rule = mask;
 	} else {
-		states &= ~RADV_DYNAMIC_DISCARD_RECTANGLE;
-
 		/* Allow from all rectangle combinations */
 		pipeline->graphics.pa_sc_cliprect_rule = 0xffff;
 	}
@@ -2411,7 +2437,6 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	pipeline->layout = radv_pipeline_layout_from_handle(pCreateInfo->layout);
 	assert(pipeline->layout);
 
-	radv_pipeline_init_dynamic_state(pipeline, pCreateInfo);
 	radv_pipeline_init_blend_state(pipeline, pCreateInfo, extra);
 
 	const VkPipelineShaderStageCreateInfo *pStages[MESA_SHADER_STAGES] = { 0, };
@@ -2444,6 +2469,9 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	pipeline->graphics.prim_restart_enable = !!pCreateInfo->pInputAssemblyState->primitiveRestartEnable;
 	/* prim vertex count will need TESS changes */
 	pipeline->graphics.prim_vertex_count = prim_size_table[pipeline->graphics.prim];
+
+	pipeline->graphics.needed_dynamic_state = radv_pipeline_needed_dynamic_state(pCreateInfo);
+	radv_pipeline_init_dynamic_state(pipeline, pCreateInfo, pipeline->graphics.needed_dynamic_state);
 
 	/* Ensure that some export memory is always allocated, for two reasons:
 	 *

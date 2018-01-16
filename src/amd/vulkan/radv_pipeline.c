@@ -71,6 +71,13 @@ struct radv_tessellation_state {
 	uint32_t tf_param;
 };
 
+struct radv_gs_state {
+	uint32_t vgt_gs_onchip_cntl;
+	uint32_t vgt_gs_max_prims_per_subgroup;
+	uint32_t vgt_esgs_ring_itemsize;
+	uint32_t lds_size;
+};
+
 static void
 radv_pipeline_destroy(struct radv_device *device,
                       struct radv_pipeline *pipeline,
@@ -1151,12 +1158,20 @@ radv_pipeline_init_dynamic_state(struct radv_pipeline *pipeline,
 	pipeline->dynamic_state.mask = states;
 }
 
-static void calculate_gfx9_gs_info(const VkGraphicsPipelineCreateInfo *pCreateInfo,
-                                   struct radv_pipeline *pipeline)
+static struct radv_gs_state
+calculate_gs_info(const VkGraphicsPipelineCreateInfo *pCreateInfo,
+                       const struct radv_pipeline *pipeline)
 {
+	struct radv_gs_state gs = {0};
 	struct ac_shader_variant_info *gs_info = &pipeline->shaders[MESA_SHADER_GEOMETRY]->info;
-	struct ac_es_output_info *es_info = radv_pipeline_has_tess(pipeline) ?
-		&gs_info->tes.es_info : &gs_info->vs.es_info;
+	struct ac_es_output_info *es_info;
+	if (pipeline->device->physical_device->rad_info.chip_class >= GFX9)
+		es_info = radv_pipeline_has_tess(pipeline) ? &gs_info->tes.es_info : &gs_info->vs.es_info;
+	else
+		es_info = radv_pipeline_has_tess(pipeline) ?
+			&pipeline->shaders[MESA_SHADER_TESS_EVAL]->info.tes.es_info :
+			&pipeline->shaders[MESA_SHADER_VERTEX]->info.vs.es_info;
+
 	unsigned gs_num_invocations = MAX2(gs_info->gs.invocations, 1);
 	bool uses_adjacency;
 	switch(pCreateInfo->pInputAssemblyState->topology) {
@@ -1254,19 +1269,19 @@ static void calculate_gfx9_gs_info(const VkGraphicsPipelineCreateInfo *pCreateIn
 	uint32_t gs_prims_per_subgroup = gs_prims;
 	uint32_t gs_inst_prims_in_subgroup = gs_prims * gs_num_invocations;
 	uint32_t max_prims_per_subgroup = gs_inst_prims_in_subgroup * gs_info->gs.vertices_out;
-	pipeline->graphics.gs.lds_size = align(esgs_lds_size, 128) / 128;
-	pipeline->graphics.gs.vgt_gs_onchip_cntl =
-	                       S_028A44_ES_VERTS_PER_SUBGRP(es_verts_per_subgroup) |
-	                       S_028A44_GS_PRIMS_PER_SUBGRP(gs_prims_per_subgroup) |
-	                       S_028A44_GS_INST_PRIMS_IN_SUBGRP(gs_inst_prims_in_subgroup);
-	pipeline->graphics.gs.vgt_gs_max_prims_per_subgroup =
-	                       S_028A94_MAX_PRIMS_PER_SUBGROUP(max_prims_per_subgroup);
-	pipeline->graphics.gs.vgt_esgs_ring_itemsize  = esgs_itemsize;
+	gs.lds_size = align(esgs_lds_size, 128) / 128;
+	gs.vgt_gs_onchip_cntl = S_028A44_ES_VERTS_PER_SUBGRP(es_verts_per_subgroup) |
+	                        S_028A44_GS_PRIMS_PER_SUBGRP(gs_prims_per_subgroup) |
+	                        S_028A44_GS_INST_PRIMS_IN_SUBGRP(gs_inst_prims_in_subgroup);
+	gs.vgt_gs_max_prims_per_subgroup = S_028A94_MAX_PRIMS_PER_SUBGROUP(max_prims_per_subgroup);
+	gs.vgt_esgs_ring_itemsize  = esgs_itemsize;
 	assert(max_prims_per_subgroup <= max_out_prims);
+
+	return gs;
 }
 
 static void
-calculate_gs_ring_sizes(struct radv_pipeline *pipeline)
+calculate_gs_ring_sizes(struct radv_pipeline *pipeline, const struct radv_gs_state *gs)
 {
 	struct radv_device *device = pipeline->device;
 	unsigned num_se = device->physical_device->rad_info.max_se;
@@ -1277,20 +1292,13 @@ calculate_gs_ring_sizes(struct radv_pipeline *pipeline)
 	/* The maximum size is 63.999 MB per SE. */
 	unsigned max_size = ((unsigned)(63.999 * 1024 * 1024) & ~255) * num_se;
 	struct ac_shader_variant_info *gs_info = &pipeline->shaders[MESA_SHADER_GEOMETRY]->info;
-	struct ac_es_output_info *es_info;
-	if (pipeline->device->physical_device->rad_info.chip_class >= GFX9) 
-		es_info = radv_pipeline_has_tess(pipeline) ? &gs_info->tes.es_info : &gs_info->vs.es_info;
-	else
-		es_info = radv_pipeline_has_tess(pipeline) ?
-			&pipeline->shaders[MESA_SHADER_TESS_EVAL]->info.tes.es_info :
-			&pipeline->shaders[MESA_SHADER_VERTEX]->info.vs.es_info;
 
 	/* Calculate the minimum size. */
-	unsigned min_esgs_ring_size = align(es_info->esgs_itemsize * gs_vertex_reuse *
+	unsigned min_esgs_ring_size = align(gs->vgt_esgs_ring_itemsize * 4 * gs_vertex_reuse *
 					    wave_size, alignment);
 	/* These are recommended sizes, not minimum sizes. */
 	unsigned esgs_ring_size = max_gs_waves * 2 * wave_size *
-		es_info->esgs_itemsize * gs_info->gs.vertices_in;
+		gs->vgt_esgs_ring_itemsize * 4 * gs_info->gs.vertices_in;
 	unsigned gsvs_ring_size = max_gs_waves * 2 * wave_size *
 		gs_info->gs.max_gsvs_emit_size * 1; // no streams in VK (gs->max_gs_stream + 1);
 
@@ -1301,7 +1309,6 @@ calculate_gs_ring_sizes(struct radv_pipeline *pipeline)
 	if (pipeline->device->physical_device->rad_info.chip_class <= VI)
 		pipeline->graphics.esgs_ring_size = CLAMP(esgs_ring_size, min_esgs_ring_size, max_size);
 
-	pipeline->graphics.gs.vgt_esgs_ring_itemsize = es_info->esgs_itemsize / 4;
 	pipeline->graphics.gsvs_ring_size = MIN2(gsvs_ring_size, max_size);
 }
 
@@ -2627,7 +2634,8 @@ radv_pipeline_generate_tess_shaders(struct radv_pm4_builder *builder,
 
 static void
 radv_pipeline_generate_geometry_shader(struct radv_pm4_builder *builder,
-				       struct radv_pipeline *pipeline)
+				       struct radv_pipeline *pipeline,
+				       const struct radv_gs_state *gs_state)
 {
 	struct radv_shader_variant *gs;
 	uint64_t va;
@@ -2660,7 +2668,7 @@ radv_pipeline_generate_geometry_shader(struct radv_pm4_builder *builder,
 			       S_028B90_ENABLE(gs_num_invocations > 0));
 
 	radv_pm4_set_reg(builder, R_028AAC_VGT_ESGS_RING_ITEMSIZE,
-			       pipeline->graphics.gs.vgt_esgs_ring_itemsize);
+			       gs_state->vgt_esgs_ring_itemsize);
 
 	va = radv_buffer_get_va(gs->bo) + gs->bo_offset;
 
@@ -2671,11 +2679,10 @@ radv_pipeline_generate_geometry_shader(struct radv_pm4_builder *builder,
 
 		radv_pm4_start_reg_set(builder, R_00B228_SPI_SHADER_PGM_RSRC1_GS, 2);
 		radv_pm4_emit(builder, gs->rsrc1);
-		radv_pm4_emit(builder, gs->rsrc2 |
-		                            S_00B22C_LDS_SIZE(pipeline->graphics.gs.lds_size));
+		radv_pm4_emit(builder, gs->rsrc2 | S_00B22C_LDS_SIZE(gs_state->lds_size));
 
-		radv_pm4_set_reg(builder, R_028A44_VGT_GS_ONCHIP_CNTL, pipeline->graphics.gs.vgt_gs_onchip_cntl);
-		radv_pm4_set_reg(builder, R_028A94_VGT_GS_MAX_PRIMS_PER_SUBGROUP, pipeline->graphics.gs.vgt_gs_max_prims_per_subgroup);
+		radv_pm4_set_reg(builder, R_028A44_VGT_GS_ONCHIP_CNTL, gs_state->vgt_gs_onchip_cntl);
+		radv_pm4_set_reg(builder, R_028A94_VGT_GS_MAX_PRIMS_PER_SUBGROUP, gs_state->vgt_gs_max_prims_per_subgroup);
 	} else {
 		radv_pm4_start_reg_set(builder, R_00B220_SPI_SHADER_PGM_LO_GS, 4);
 		radv_pm4_emit(builder, va >> 8);
@@ -2928,7 +2935,8 @@ radv_pipeline_generate_pm4(struct radv_pipeline *pipeline,
                            const VkGraphicsPipelineCreateInfo *pCreateInfo,
                            const struct radv_graphics_pipeline_create_info *extra,
 			   const struct radv_blend_state *blend,
-			   const struct radv_tessellation_state *tess) {
+			   const struct radv_tessellation_state *tess,
+			   const struct radv_gs_state *gs) {
 	struct radv_pm4_builder builder;
 	
 	radv_pm4_init(&builder, &pipeline->pm4);
@@ -2940,7 +2948,7 @@ radv_pipeline_generate_pm4(struct radv_pipeline *pipeline,
 	radv_pipeline_generate_vgt_gs_mode(&builder, pipeline);
 	radv_pipeline_generate_vertex_shader(&builder, pipeline, tess);
 	radv_pipeline_generate_tess_shaders(&builder, pipeline, tess);
-	radv_pipeline_generate_geometry_shader(&builder, pipeline);
+	radv_pipeline_generate_geometry_shader(&builder, pipeline, gs);
 	radv_pipeline_generate_fragment_shader(&builder, pipeline);
 	radv_pipeline_generate_ps_inputs(&builder, pipeline);
 	radv_pipeline_generate_vgt_vertex_reuse(&builder, pipeline);
@@ -3178,10 +3186,10 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 		}
 	}
 
+	struct radv_gs_state gs = {0};
 	if (radv_pipeline_has_gs(pipeline)) {
-		calculate_gs_ring_sizes(pipeline);
-		if (device->physical_device->rad_info.chip_class >= GFX9)
-			calculate_gfx9_gs_info(pCreateInfo, pipeline);
+		gs = calculate_gs_info(pCreateInfo, pipeline);
+		calculate_gs_ring_sizes(pipeline, &gs);
 	}
 
 	struct radv_tessellation_state tess = {0};
@@ -3216,7 +3224,7 @@ radv_pipeline_init(struct radv_pipeline *pipeline,
 	}
 
 	result = radv_pipeline_scratch_init(device, pipeline);
-	radv_pipeline_generate_pm4(pipeline, pCreateInfo, extra, &blend, &tess);
+	radv_pipeline_generate_pm4(pipeline, pCreateInfo, extra, &blend, &tess, &gs);
 
 	return result;
 }

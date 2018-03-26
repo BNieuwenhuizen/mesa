@@ -2037,8 +2037,6 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 				nir_lower_io_to_scalar_early(nir[i], mask);
 				radv_optimize_nir(nir[i], false);
 			}
-
-			NIR_PASS_V(nir[i], nir_lower_deref_instrs, ~0);
 		}
 	}
 

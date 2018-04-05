@@ -2033,12 +2033,12 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 			if (i != last)
 				mask = mask | nir_var_shader_out;
 
-			NIR_PASS_V(nir[i], nir_lower_deref_instrs, ~0);
-
 			if (!(flags & VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT)) {
 				nir_lower_io_to_scalar_early(nir[i], mask);
 				radv_optimize_nir(nir[i], false);
 			}
+
+			NIR_PASS_V(nir[i], nir_lower_deref_instrs, ~0);
 		}
 	}
 

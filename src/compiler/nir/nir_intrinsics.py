@@ -102,6 +102,8 @@ INTERP_MODE = "NIR_INTRINSIC_INTERP_MODE"
 REDUCTION_OP = "NIR_INTRINSIC_REDUCTION_OP"
 # Cluster size for reduction operations
 CLUSTER_SIZE = "NIR_INTRINSIC_CLUSTER_SIZE"
+# Non uniform descriptor access
+NON_UNIFORM = "NIR_INTRINSIC_NON_UNIFORM"
 
 #
 # Possible flags:
@@ -292,18 +294,18 @@ atomic3("atomic_counter_comp_swap")
 # either one or two additional scalar arguments with the same meaning as in
 # the ARB_shader_image_load_store specification.
 intrinsic("image_var_load", src_comp=[4, 1], dest_comp=4, num_vars=1,
-          flags=[CAN_ELIMINATE])
-intrinsic("image_var_store", src_comp=[4, 1, 4], num_vars=1)
-intrinsic("image_var_atomic_add",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_atomic_min",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_atomic_max",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_atomic_and",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_atomic_or",   src_comp=[4, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_atomic_xor",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_atomic_exchange",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_atomic_comp_swap", src_comp=[4, 1, 1, 1], dest_comp=1, num_vars=1)
-intrinsic("image_var_size",    dest_comp=0, num_vars=1, flags=[CAN_ELIMINATE, CAN_REORDER])
-intrinsic("image_var_samples", dest_comp=1, num_vars=1, flags=[CAN_ELIMINATE, CAN_REORDER])
+          indices=[NON_UNIFORM], flags=[CAN_ELIMINATE])
+intrinsic("image_var_store", src_comp=[4, 1, 4], num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_add",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_min",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_max",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_and",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_or",   src_comp=[4, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_xor",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_exchange",  src_comp=[4, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_atomic_comp_swap", src_comp=[4, 1, 1, 1], dest_comp=1, num_vars=1, indices=[NON_UNIFORM])
+intrinsic("image_var_size",    dest_comp=0, num_vars=1, flags=[CAN_ELIMINATE, CAN_REORDER], indices=[NON_UNIFORM])
+intrinsic("image_var_samples", dest_comp=1, num_vars=1, flags=[CAN_ELIMINATE, CAN_REORDER], indices=[NON_UNIFORM])
 
 # Vulkan descriptor set intrinsics
 #
@@ -369,16 +371,16 @@ intrinsic("var_atomic_comp_swap", src_comp=[1, 1], dest_comp=1, num_vars=1)
 # 2: The data parameter to the atomic function (i.e. the value to add
 #    in ssbo_atomic_add, etc).
 # 3: For CompSwap only: the second data parameter.
-intrinsic("ssbo_atomic_add",  src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_imin", src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_umin", src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_imax", src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_umax", src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_and",  src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_or",   src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_xor",  src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_exchange", src_comp=[1, 1, 1], dest_comp=1)
-intrinsic("ssbo_atomic_comp_swap", src_comp=[1, 1, 1, 1], dest_comp=1)
+intrinsic("ssbo_atomic_add",  src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_imin", src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_umin", src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_imax", src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_umax", src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_and",  src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_or",   src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_xor",  src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_exchange", src_comp=[1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
+intrinsic("ssbo_atomic_comp_swap", src_comp=[1, 1, 1, 1], dest_comp=1, indices=[NON_UNIFORM])
 
 # CS shared variable atomic intrinsics
 #
@@ -507,7 +509,7 @@ def load(name, num_srcs, indices=[], flags=[]):
 # src[] = { offset }. const_index[] = { base, range }
 load("uniform", 1, [BASE, RANGE], [CAN_ELIMINATE, CAN_REORDER])
 # src[] = { buffer_index, offset }. No const_index
-load("ubo", 2, flags=[CAN_ELIMINATE, CAN_REORDER])
+load("ubo", 2, [NON_UNIFORM], flags=[CAN_ELIMINATE, CAN_REORDER])
 # src[] = { offset }. const_index[] = { base, component }
 load("input", 1, [BASE, COMPONENT], [CAN_ELIMINATE, CAN_REORDER])
 # src[] = { vertex, offset }. const_index[] = { base, component }
@@ -517,7 +519,7 @@ intrinsic("load_interpolated_input", src_comp=[2, 1], dest_comp=0,
           indices=[BASE, COMPONENT], flags=[CAN_ELIMINATE, CAN_REORDER])
 
 # src[] = { buffer_index, offset }. No const_index
-load("ssbo", 2, flags=[CAN_ELIMINATE])
+load("ssbo", 2, [NON_UNIFORM], flags=[CAN_ELIMINATE])
 # src[] = { offset }. const_index[] = { base, component }
 load("output", 1, [BASE, COMPONENT], flags=[CAN_ELIMINATE])
 # src[] = { vertex, offset }. const_index[] = { base }
@@ -541,6 +543,6 @@ store("output", 2, [BASE, WRMASK, COMPONENT])
 # const_index[] = { base, write_mask, component }
 store("per_vertex_output", 3, [BASE, WRMASK, COMPONENT])
 # src[] = { value, block_index, offset }. const_index[] = { write_mask }
-store("ssbo", 3, [WRMASK])
+store("ssbo", 3, [WRMASK, NON_UNIFORM])
 # src[] = { value, offset }. const_index[] = { base, write_mask }
 store("shared", 2, [BASE, WRMASK])

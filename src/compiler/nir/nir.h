@@ -1104,6 +1104,11 @@ typedef enum {
     */
    NIR_INTRINSIC_CLUSTER_SIZE = 11,
 
+   /**
+    * Whether the accessed image/ubo/ssbo is non-uniform.
+    */
+   NIR_INTRINSIC_NON_UNIFORM = 12,
+
    NIR_INTRINSIC_NUM_INDEX_FLAGS,
 
 } nir_intrinsic_index_flag;
@@ -1196,6 +1201,7 @@ INTRINSIC_IDX_ACCESSORS(component, COMPONENT, unsigned)
 INTRINSIC_IDX_ACCESSORS(interp_mode, INTERP_MODE, unsigned)
 INTRINSIC_IDX_ACCESSORS(reduction_op, REDUCTION_OP, unsigned)
 INTRINSIC_IDX_ACCESSORS(cluster_size, CLUSTER_SIZE, unsigned)
+INTRINSIC_IDX_ACCESSORS(non_uniform, NON_UNIFORM, bool)
 
 /**
  * \group texture information
@@ -1264,6 +1270,12 @@ typedef struct {
 
    /* gather component selector */
    unsigned component : 2;
+
+   /**
+    * It can be dynamically non-uniform which texture is accessed by
+    * this instruction.
+    */
+   bool non_uniform;
 
    /** The texture index
     *

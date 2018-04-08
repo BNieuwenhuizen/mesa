@@ -586,7 +586,8 @@ union packed_tex_data {
       unsigned component:2;
       unsigned has_texture_deref:1;
       unsigned has_sampler_deref:1;
-      unsigned unused:10; /* Mark unused for valgrind. */
+      unsigned non_uniform:1;
+      unsigned unused:9; /* Mark unused for valgrind. */
    } u;
 };
 
@@ -610,6 +611,7 @@ write_tex(write_ctx *ctx, const nir_tex_instr *tex)
       .u.component = tex->component,
       .u.has_texture_deref = tex->texture != NULL,
       .u.has_sampler_deref = tex->sampler != NULL,
+      .u.non_uniform = tex->non_uniform,
    };
    blob_write_uint32(ctx->blob, packed.u32);
 
@@ -645,6 +647,7 @@ read_tex(read_ctx *ctx)
    tex->is_shadow = packed.u.is_shadow;
    tex->is_new_style_shadow = packed.u.is_new_style_shadow;
    tex->component = packed.u.component;
+   tex->non_uniform = packed.u.non_uniform;
 
    read_dest(ctx, &tex->dest, &tex->instr);
    for (unsigned i = 0; i < tex->num_srcs; i++) {

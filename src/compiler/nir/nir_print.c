@@ -623,6 +623,7 @@ print_intrinsic_instr(nir_intrinsic_instr *instr, print_state *state)
       [NIR_INTRINSIC_INTERP_MODE] = "interp_mode",
       [NIR_INTRINSIC_REDUCTION_OP] = "reduction_op",
       [NIR_INTRINSIC_CLUSTER_SIZE] = "cluster_size",
+      [NIR_INTRINSIC_NON_UNIFORM] = "non_uniform",
    };
    for (unsigned idx = 1; idx < NIR_INTRINSIC_NUM_INDEX_FLAGS; idx++) {
       if (!info->index_map[idx])
@@ -802,6 +803,10 @@ print_tex_instr(nir_tex_instr *instr, print_state *state)
       assert(instr->sampler == NULL);
       fprintf(fp, "%u (texture) %u (sampler)",
               instr->texture_index, instr->sampler_index);
+   }
+
+   if (instr->non_uniform) {
+      fprintf(fp, " non-uniform");
    }
 }
 

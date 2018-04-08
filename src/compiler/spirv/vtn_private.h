@@ -700,6 +700,9 @@ typedef void (*vtn_decoration_foreach_cb)(struct vtn_builder *,
 void vtn_foreach_decoration(struct vtn_builder *b, struct vtn_value *value,
                             vtn_decoration_foreach_cb cb, void *data);
 
+const struct vtn_decoration *vtn_find_decoration(struct vtn_value *,
+                                                 SpvDecoration);
+
 typedef void (*vtn_execution_mode_foreach_cb)(struct vtn_builder *,
                                               struct vtn_value *,
                                               const struct vtn_decoration *,

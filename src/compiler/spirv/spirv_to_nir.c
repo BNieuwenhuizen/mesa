@@ -453,6 +453,19 @@ vtn_foreach_decoration(struct vtn_builder *b, struct vtn_value *value,
    _foreach_decoration_helper(b, value, -1, value, cb, data);
 }
 
+/* Finds a decoration applied directly to the supplied value. */
+const struct vtn_decoration *vtn_find_decoration(struct vtn_value *value,
+                                                 SpvDecoration decoration)
+{
+   for (struct vtn_decoration *dec = value->decoration; dec; dec = dec->next) {
+      if (dec->scope == VTN_DEC_DECORATION) {
+         if (dec->decoration == decoration)
+            return dec;
+      }
+   }
+   return NULL;
+}
+
 void
 vtn_foreach_execution_mode(struct vtn_builder *b, struct vtn_value *value,
                            vtn_execution_mode_foreach_cb cb, void *data)

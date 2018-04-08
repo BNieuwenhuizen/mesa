@@ -2126,6 +2126,8 @@ vtn_handle_texture(struct vtn_builder *b, SpvOp opcode,
    instr->is_new_style_shadow =
       is_shadow && glsl_get_components(ret_type->type) == 1;
    instr->component = gather_component;
+   instr->non_uniform =
+      vtn_find_decoration(sampled_val, SpvDecorationNonUniformEXT) != NULL;
 
    switch (glsl_get_sampler_result_type(image_type)) {
    case GLSL_TYPE_FLOAT:   instr->dest_type = nir_type_float;     break;
@@ -2308,7 +2310,7 @@ vtn_handle_image(struct vtn_builder *b, SpvOp opcode,
    }
 
    struct vtn_image_pointer image;
-
+   struct vtn_value *image_val;
    switch (opcode) {
    case SpvOpAtomicExchange:
    case SpvOpAtomicCompareExchange:
@@ -2325,21 +2327,25 @@ vtn_handle_image(struct vtn_builder *b, SpvOp opcode,
    case SpvOpAtomicAnd:
    case SpvOpAtomicOr:
    case SpvOpAtomicXor:
-      image = *vtn_value(b, w[3], vtn_value_type_image_pointer)->image;
+      image_val = vtn_value(b, w[3], vtn_value_type_image_pointer);
+      image = *image_val->image;
       break;
 
    case SpvOpAtomicStore:
-      image = *vtn_value(b, w[1], vtn_value_type_image_pointer)->image;
+      image_val = vtn_value(b, w[3], vtn_value_type_image_pointer);
+      image = *image_val->image;
       break;
 
    case SpvOpImageQuerySize:
-      image.image = vtn_value(b, w[3], vtn_value_type_pointer)->pointer;
+      image_val = vtn_value(b, w[3], vtn_value_type_pointer);
+      image.image = image_val->pointer;
       image.coord = NULL;
       image.sample = NULL;
       break;
 
    case SpvOpImageRead:
-      image.image = vtn_value(b, w[3], vtn_value_type_pointer)->pointer;
+      image_val = vtn_value(b, w[3], vtn_value_type_pointer);
+      image.image = image_val->pointer;
       image.coord = get_image_coord(b, w[4]);
 
       if (count > 5 && (w[5] & SpvImageOperandsSampleMask)) {
@@ -2351,7 +2357,8 @@ vtn_handle_image(struct vtn_builder *b, SpvOp opcode,
       break;
 
    case SpvOpImageWrite:
-      image.image = vtn_value(b, w[1], vtn_value_type_pointer)->pointer;
+      image_val = vtn_value(b, w[3], vtn_value_type_pointer);
+      image.image = image_val->pointer;
       image.coord = get_image_coord(b, w[2]);
 
       /* texel = w[3] */
@@ -2398,6 +2405,10 @@ vtn_handle_image(struct vtn_builder *b, SpvOp opcode,
 
    nir_deref_var *image_deref = vtn_pointer_to_deref(b, image.image);
    intrin->variables[0] = nir_deref_var_clone(image_deref, intrin);
+
+   nir_intrinsic_set_non_uniform(intrin,
+                                 vtn_find_decoration(image_val,
+                                                     SpvDecorationNonUniformEXT) != NULL);
 
    /* ImageQuerySize doesn't take any extra parameters */
    if (opcode != SpvOpImageQuerySize) {

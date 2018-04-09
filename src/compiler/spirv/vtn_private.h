@@ -444,6 +444,10 @@ struct vtn_pointer {
    /** A (block_index, offset) pair representing a UBO or SSBO position. */
    struct nir_ssa_def *block_index;
    struct nir_ssa_def *offset;
+
+   /** Whether the uniformity-assumption for descriptors gets canceled and
+    * any descriptor access using this pointer is not assumed uniform. */
+   bool non_uniform;
 };
 
 struct vtn_variable {

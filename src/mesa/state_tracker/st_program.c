@@ -390,6 +390,7 @@ st_translate_prog_to_nir(struct st_context *st, struct gl_program *prog,
 
    /* Translate to NIR */
    nir_shader *nir = prog_to_nir(prog, options->NirOptions);
+   NIR_PASS_V(nir, nir_lower_deref_instrs, ~0);
    NIR_PASS_V(nir, nir_lower_regs_to_ssa); /* turn registers into SSA */
    nir_validate_shader(nir);
 

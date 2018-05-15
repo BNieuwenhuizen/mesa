@@ -2491,10 +2491,23 @@ static inline bool should_print_nir(void) { return false; }
    }                                                                 \
 } while (0)
 
+static inline void
+_nir_print_pass(nir_shader *shader, const char *pass,
+		const char *func, int line)
+{
+	printf("%s:", gl_shader_stage_name(shader->info.stage));
+	if (shader->info.name)
+		printf("%s:", shader->info.name);
+	if (shader->info.label)
+		printf("%s:", shader->info.label);
+	printf(" %s\t\t(%s:%d)\n", pass, func, line);
+}
+
 #define NIR_PASS(progress, nir, pass, ...) _PASS(nir,                \
    nir_metadata_set_validation_flag(nir);                            \
    if (should_print_nir())                                           \
       printf("%s\n", #pass);                                         \
+   _nir_print_pass(nir, #pass, __func__, __LINE__);                  \
    if (pass(nir, ##__VA_ARGS__)) {                                   \
       progress = true;                                               \
       if (should_print_nir())                                        \
@@ -2506,6 +2519,7 @@ static inline bool should_print_nir(void) { return false; }
 #define NIR_PASS_V(nir, pass, ...) _PASS(nir,                        \
    if (should_print_nir())                                           \
       printf("%s\n", #pass);                                         \
+   _nir_print_pass(nir, #pass, __func__, __LINE__);                  \
    pass(nir, ##__VA_ARGS__);                                         \
    if (should_print_nir())                                           \
       nir_print_shader(nir, stdout);                                 \

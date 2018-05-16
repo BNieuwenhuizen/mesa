@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <amdgpu.h>
 #include <amdgpu_drm.h>
+#include <drm_fourcc.h>
 
 #include "addrlib/addrinterface.h"
 
@@ -570,6 +571,9 @@ static int gfx6_compute_surface(ADDR_HANDLE addrlib,
 	ADDR_TILEINFO AddrTileInfoOut = {0};
 	int r;
 
+	/* TODO: implement modifiers for GFX8-GFX8. */
+	surf->modifier = DRM_FORMAT_MOD_INVALID;
+
 	AddrSurfInfoIn.size = sizeof(ADDR_COMPUTE_SURFACE_INFO_INPUT);
 	AddrSurfInfoOut.size = sizeof(ADDR_COMPUTE_SURFACE_INFO_OUTPUT);
 	AddrDccIn.size = sizeof(ADDR_COMPUTE_DCCINFO_INPUT);
@@ -1007,6 +1011,61 @@ gfx9_get_preferred_swizzle_mode(ADDR_HANDLE addrlib,
 	return 0;
 }
 
+static int
+gfx9_swizzle_mode_from_modifiers(ADDR_HANDLE addrlib,
+				 ADDR2_COMPUTE_SURFACE_INFO_INPUT in,
+				 unsigned flags,
+				 unsigned modifier_count, const uint64_t *modifiers,
+				 AddrSwizzleMode *swizzle_mode, uint64_t *out_modifier)
+{
+	for (unsigned display = 0; display < 2; ++display) {
+		ADDR2_COMPUTE_SURFACE_INFO_INPUT tmp_in = in;
+		AddrSwizzleMode preferred_swizzle_mode;
+		tmp_in.flags.display = display;
+
+		int ret = gfx9_get_preferred_swizzle_mode(addrlib, &tmp_in, false,
+		                                          (display ? RADEON_SURF_SCANOUT : 0), &preferred_swizzle_mode);
+		if (ret != ADDR_OK)
+			continue;
+
+		for (unsigned i = 0; i < modifier_count; ++i) {
+			if (modifiers[i] == DRM_FORMAT_MOD_AMD_GFX9_TILED(preferred_swizzle_mode)) {
+				*swizzle_mode = preferred_swizzle_mode;
+				*out_modifier = modifiers[i];
+				return 0;
+			}
+		}
+	}
+
+	const uint64_t supported_modifiers[] = {
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_S_X),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_S_X),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_D_X),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_D_X),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_S),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_S),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_D),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_D),
+		DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_LINEAR),
+		DRM_FORMAT_MOD_LINEAR
+	};
+
+	for (unsigned i = 0; i < ARRAY_SIZE(supported_modifiers); ++i) {
+		for(unsigned j = 0; j < modifier_count; ++j) {
+			if (supported_modifiers[i] == modifiers[j]) {
+				if (modifiers[j] == DRM_FORMAT_MOD_LINEAR)
+					*swizzle_mode = ADDR_SW_LINEAR;
+				else
+					*swizzle_mode = modifiers[j] & 0x1F;
+				*out_modifier = modifiers[j];
+				return 0;
+			}
+		}
+	}
+
+	return -1;
+}
+
 static int gfx9_compute_miptree(ADDR_HANDLE addrlib,
 				const struct ac_surf_config *config,
 				struct radeon_surf *surf, bool compressed,
@@ -1286,6 +1345,7 @@ static int gfx9_compute_surface(ADDR_HANDLE addrlib,
 				const struct radeon_info *info,
 				const struct ac_surf_config *config,
 				enum radeon_surf_mode mode,
+				unsigned modifier_count, const uint64_t *modifiers,
 				struct radeon_surf *surf)
 {
 	bool compressed;
@@ -1380,29 +1440,38 @@ static int gfx9_compute_surface(ADDR_HANDLE addrlib,
 	AddrSurfInfoIn.flags.metaPipeUnaligned = 0;
 	AddrSurfInfoIn.flags.metaRbUnaligned = 0;
 
-	switch (mode) {
-	case RADEON_SURF_MODE_LINEAR_ALIGNED:
-		assert(config->info.samples <= 1);
-		assert(!(surf->flags & RADEON_SURF_Z_OR_SBUFFER));
-		AddrSurfInfoIn.swizzleMode = ADDR_SW_LINEAR;
-		break;
-
-	case RADEON_SURF_MODE_1D:
-	case RADEON_SURF_MODE_2D:
-		if (surf->flags & RADEON_SURF_IMPORTED) {
-			AddrSurfInfoIn.swizzleMode = surf->u.gfx9.surf.swizzle_mode;
-			break;
-		}
-
-		r = gfx9_get_preferred_swizzle_mode(addrlib, &AddrSurfInfoIn,
-						    false, surf->flags,
-						    &AddrSurfInfoIn.swizzleMode);
+	surf->modifier = DRM_FORMAT_MOD_INVALID;
+	if (modifier_count && (modifier_count > 1 || modifiers[0] != DRM_FORMAT_MOD_INVALID)) {
+		r = gfx9_swizzle_mode_from_modifiers(addrlib, AddrSurfInfoIn,
+						     surf->flags, modifier_count,
+						     modifiers, &AddrSurfInfoIn.swizzleMode, &surf->modifier);
 		if (r)
 			return r;
-		break;
+	} else {
+		switch (mode) {
+		case RADEON_SURF_MODE_LINEAR_ALIGNED:
+			assert(config->info.samples <= 1);
+			assert(!(surf->flags & RADEON_SURF_Z_OR_SBUFFER));
+			AddrSurfInfoIn.swizzleMode = ADDR_SW_LINEAR;
+			break;
 
-	default:
-		assert(0);
+		case RADEON_SURF_MODE_1D:
+		case RADEON_SURF_MODE_2D:
+			if (surf->flags & RADEON_SURF_IMPORTED) {
+				AddrSurfInfoIn.swizzleMode = surf->u.gfx9.surf.swizzle_mode;
+				break;
+			}
+
+			r = gfx9_get_preferred_swizzle_mode(addrlib, &AddrSurfInfoIn,
+							    false, surf->flags,
+							    &AddrSurfInfoIn.swizzleMode);
+			if (r)
+				return r;
+			break;
+
+		default:
+			assert(0);
+		}
 	}
 
 	surf->u.gfx9.resource_type = AddrSurfInfoIn.resourceType;
@@ -1518,6 +1587,7 @@ static int gfx9_compute_surface(ADDR_HANDLE addrlib,
 int ac_compute_surface(ADDR_HANDLE addrlib, const struct radeon_info *info,
 		       const struct ac_surf_config *config,
 		       enum radeon_surf_mode mode,
+		       unsigned modifier_count, const uint64_t *modifiers,
 		       struct radeon_surf *surf)
 {
 	int r;
@@ -1527,7 +1597,51 @@ int ac_compute_surface(ADDR_HANDLE addrlib, const struct radeon_info *info,
 		return r;
 
 	if (info->chip_class >= GFX9)
-		return gfx9_compute_surface(addrlib, info, config, mode, surf);
+		return gfx9_compute_surface(addrlib, info, config, mode, modifier_count, modifiers, surf);
 	else
 		return gfx6_compute_surface(addrlib, info, config, mode, surf);
+}
+
+
+static void add_array(unsigned *idx, unsigned *count, uint64_t * modifiers, uint64_t modifier)
+{
+	if (!modifiers) {
+		++(*idx);
+	} else if (*idx < *count) {
+		modifiers[(*idx)++] = modifier;
+	}
+}
+
+static
+int gfx9_list_modifiers(ADDR_HANDLE addrlib, const struct radeon_info *info,
+                        unsigned bpp,
+                        unsigned *count, uint64_t *modifiers)
+{
+	unsigned idx = 0;
+	// Roughly the order of preference, though things like opt4Space can change our preferences.
+	if (util_is_power_of_two_or_zero(bpp)) {
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_S_X));
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_S_X));
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_D_X));
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_D_X));
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_S));
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_S));
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_64KB_D));
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_4KB_D));
+	}
+	add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_LINEAR));
+	add_array(&idx, count, modifiers, DRM_FORMAT_MOD_LINEAR);
+
+	*count = idx;
+	return 0;
+}
+
+int ac_list_modifiers(ADDR_HANDLE addrlib, const struct radeon_info *info,
+                      unsigned bpp,
+                      unsigned *count, uint64_t *modifiers)
+{
+	if (info->chip_class >= GFX9)
+		return gfx9_list_modifiers(addrlib, info, bpp, count, modifiers);
+	else
+		abort();
 }

@@ -207,6 +207,8 @@ struct radeon_surf {
     uint32_t                    dcc_alignment;
     uint32_t                    htile_alignment;
 
+    uint64_t                    modifier;
+
     union {
         /* R600-VI return values.
          *
@@ -246,7 +248,13 @@ ADDR_HANDLE amdgpu_addr_create(const struct radeon_info *info,
 int ac_compute_surface(ADDR_HANDLE addrlib, const struct radeon_info *info,
 		       const struct ac_surf_config * config,
 		       enum radeon_surf_mode mode,
+		       unsigned modifier_count, const uint64_t *modifiers,
 		       struct radeon_surf *surf);
+
+/* Modifiers only support 2D non-compressed single-sample color surfaces yet */
+int ac_list_modifiers(ADDR_HANDLE addrlib, const struct radeon_info *info,
+                      unsigned bpp,
+                      unsigned *count, uint64_t *modifiers);
 
 #ifdef __cplusplus
 }

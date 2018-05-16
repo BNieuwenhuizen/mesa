@@ -94,7 +94,7 @@ static int radv_amdgpu_winsys_surface_init(struct radeon_winsys *_ws,
 	config.is_3d = !!(type == RADEON_SURF_TYPE_3D);
 	config.is_cube = !!(type == RADEON_SURF_TYPE_CUBEMAP);
 
-	return ac_compute_surface(ws->addrlib, &ws->info, &config, mode, surf);
+	return ac_compute_surface(ws->addrlib, &ws->info, &config, mode, 0, NULL, surf);
 }
 
 static int radv_amdgpu_winsys_surface_best(struct radeon_winsys *rws,

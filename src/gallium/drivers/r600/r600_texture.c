@@ -246,7 +246,7 @@ static int r600_init_surface(struct r600_common_screen *rscreen,
 		flags |= RADEON_SURF_OPTIMIZE_FOR_SPACE;
 
 	r = rscreen->ws->surface_init(rscreen->ws, ptex, ptex->nr_samples,
-				      flags, bpe, array_mode, surface);
+				      flags, bpe, array_mode, 0, NULL, surface);
 	if (r) {
 		return r;
 	}
@@ -617,7 +617,7 @@ void r600_texture_get_fmask_info(struct r600_common_screen *rscreen,
 	}
 
 	if (rscreen->ws->surface_init(rscreen->ws, &templ, templ.nr_samples,
-				      flags, bpe, RADEON_SURF_MODE_2D, &fmask)) {
+				      flags, bpe, RADEON_SURF_MODE_2D, 0, NULL, &fmask)) {
 		R600_ERR("Got error in surface_init while allocating FMASK.\n");
 		return;
 	}

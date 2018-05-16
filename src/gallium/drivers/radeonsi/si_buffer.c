@@ -712,6 +712,18 @@ static struct pipe_resource *si_resource_create(struct pipe_screen *screen,
 	}
 }
 
+static struct pipe_resource *si_resource_create_with_modifiers(struct pipe_screen *screen,
+                                                               const struct pipe_resource *templ,
+                                                               const uint64_t *modifiers,
+                                                               int count)
+{
+	if (templ->target == PIPE_BUFFER) {
+		return si_buffer_create(screen, templ, 256);
+	} else {
+		return si_texture_create_with_modifiers(screen, templ, modifiers, count);
+	}
+}
+
 static bool si_resource_commit(struct pipe_context *pctx,
 			       struct pipe_resource *resource,
 			       unsigned level, struct pipe_box *box,
@@ -751,6 +763,8 @@ void si_init_screen_buffer_functions(struct si_screen *sscreen)
 	sscreen->b.resource_create = si_resource_create;
 	sscreen->b.resource_destroy = u_resource_destroy_vtbl;
 	sscreen->b.resource_from_user_memory = si_buffer_from_user_memory;
+	if (sscreen->ws->list_modifiers)
+	   sscreen->b.resource_create_with_modifiers = si_resource_create_with_modifiers;
 }
 
 void si_init_buffer_functions(struct si_context *sctx)

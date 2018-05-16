@@ -652,7 +652,13 @@ struct radeon_winsys {
                         unsigned num_color_samples,
                         unsigned flags, unsigned bpe,
                         enum radeon_surf_mode mode,
+                        unsigned modifier_count,
+                        const uint64_t *modifiers,
                         struct radeon_surf *surf);
+
+    int (*list_modifiers)(struct radeon_winsys *ws,
+                          unsigned bpp, unsigned *count,
+                          uint64_t *modifiers);
 
     uint64_t (*query_value)(struct radeon_winsys *ws,
                             enum radeon_value_id value);

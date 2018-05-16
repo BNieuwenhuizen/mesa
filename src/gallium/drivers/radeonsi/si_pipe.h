@@ -1240,6 +1240,10 @@ void si_print_texture_info(struct si_screen *sscreen,
 			   struct r600_texture *rtex, struct u_log_context *log);
 struct pipe_resource *si_texture_create(struct pipe_screen *screen,
 					const struct pipe_resource *templ);
+struct pipe_resource *si_texture_create_with_modifiers(struct pipe_screen *screen,
+					               const struct pipe_resource *templ,
+						       const uint64_t *modifiers,
+						       unsigned count);
 bool vi_dcc_formats_compatible(enum pipe_format format1,
 			       enum pipe_format format2);
 bool vi_dcc_formats_are_incompatible(struct pipe_resource *tex,

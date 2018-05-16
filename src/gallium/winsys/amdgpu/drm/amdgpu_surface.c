@@ -65,6 +65,8 @@ static int amdgpu_surface_init(struct radeon_winsys *rws,
                                unsigned num_color_samples,
                                unsigned flags, unsigned bpe,
                                enum radeon_surf_mode mode,
+                               unsigned modifier_count,
+                               const uint64_t *modifiers,
                                struct radeon_surf *surf)
 {
    struct amdgpu_winsys *ws = (struct amdgpu_winsys*)rws;
@@ -105,10 +107,20 @@ static int amdgpu_surface_init(struct radeon_winsys *rws,
 
    config.info.fmask_surf_index = &ws->surf_index_fmask;
 
-   return ac_compute_surface(ws->addrlib, &ws->info, &config, mode, 0, NULL, surf);
+   return ac_compute_surface(ws->addrlib, &ws->info, &config, mode, modifier_count, modifiers, surf);
+}
+
+
+static int amdgpu_list_modifiers(struct radeon_winsys *rws,
+                                 unsigned bpp, unsigned *count,
+                                 uint64_t *modifiers)
+{
+   struct amdgpu_winsys *ws = (struct amdgpu_winsys*)rws;
+   return ac_list_modifiers(ws->addrlib, &ws->info, bpp, count, modifiers);
 }
 
 void amdgpu_surface_init_functions(struct amdgpu_winsys *ws)
 {
    ws->base.surface_init = amdgpu_surface_init;
+   ws->base.list_modifiers = amdgpu_list_modifiers;
 }

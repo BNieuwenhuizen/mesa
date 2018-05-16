@@ -38,6 +38,8 @@
 #include "state_tracker/drm_driver.h"
 #include "amd/common/sid.h"
 
+#include <drm_fourcc.h>
+
 static enum radeon_surf_mode
 si_choose_tiling(struct si_screen *sscreen,
 		 const struct pipe_resource *templ, bool tc_compatible_htile);
@@ -227,7 +229,9 @@ static int si_init_surface(struct si_screen *sscreen,
 			   bool is_imported,
 			   bool is_scanout,
 			   bool is_flushed_depth,
-			   bool tc_compatible_htile)
+			   bool tc_compatible_htile,
+			   unsigned modifier_count,
+			   const uint64_t *modifiers)
 {
 	const struct util_format_description *desc =
 		util_format_description(ptex->format);
@@ -303,7 +307,7 @@ static int si_init_surface(struct si_screen *sscreen,
 		flags |= RADEON_SURF_OPTIMIZE_FOR_SPACE;
 
 	r = sscreen->ws->surface_init(sscreen->ws, ptex, num_color_samples,
-				      flags, bpe, array_mode, surface);
+				      flags, bpe, array_mode, modifier_count, modifiers, surface);
 	if (r) {
 		return r;
 	}
@@ -526,7 +530,7 @@ static void si_reallocate_texture_inplace(struct si_context *sctx,
 			return;
 	}
 
-	new_tex = (struct r600_texture*)screen->resource_create(screen, &templ);
+	new_tex = (struct r600_texture*)screen->resource_create_with_modifiers(screen, &templ, &rtex->surface.modifier, 1);
 	if (!new_tex)
 		return;
 
@@ -696,6 +700,7 @@ static boolean si_texture_get_handle(struct pipe_screen* screen,
 	struct radeon_bo_metadata metadata;
 	bool update_metadata = false;
 	unsigned stride, offset, slice_size;
+	uint64_t modifier = 0;
 	bool flush = false;
 
 	ctx = threaded_context_unwrap_sync(ctx);
@@ -757,6 +762,7 @@ static boolean si_texture_get_handle(struct pipe_screen* screen,
 
 			sscreen->ws->buffer_set_metadata(res->buf, &metadata);
 		}
+		modifier = rtex->surface.modifier;
 
 		if (sscreen->info.chip_class >= GFX9) {
 			offset = rtex->surface.u.gfx9.surf_offset;
@@ -822,6 +828,7 @@ static boolean si_texture_get_handle(struct pipe_screen* screen,
 		res->external_usage = usage;
 	}
 
+	whandle->modifier = modifier;
 	return sscreen->ws->buffer_get_handle(res->buf, stride, offset,
 					      slice_size, whandle);
 }
@@ -1395,8 +1402,11 @@ static unsigned si_get_num_color_samples(struct si_screen *sscreen,
 	return CLAMP(templ->nr_samples, 1, 8);
 }
 
-struct pipe_resource *si_texture_create(struct pipe_screen *screen,
-					const struct pipe_resource *templ)
+
+struct pipe_resource *si_texture_create_with_modifiers(struct pipe_screen *screen,
+					               const struct pipe_resource *templ,
+						       const uint64_t *modifiers,
+						       unsigned count)
 {
 	struct si_screen *sscreen = (struct si_screen*)screen;
 	bool is_zs = util_format_is_depth_or_stencil(templ->format);
@@ -1437,7 +1447,7 @@ struct pipe_resource *si_texture_create(struct pipe_screen *screen,
 	r = si_init_surface(sscreen, &surface, templ, num_color_samples,
 			    si_choose_tiling(sscreen, templ, tc_compatible_htile),
 			    0, 0, false, false, is_flushed_depth,
-			    tc_compatible_htile);
+			    tc_compatible_htile, count, modifiers);
 	if (r) {
 		return NULL;
 	}
@@ -1445,6 +1455,12 @@ struct pipe_resource *si_texture_create(struct pipe_screen *screen,
 	return (struct pipe_resource *)
 	       si_texture_create_object(screen, templ, num_color_samples,
 					NULL, &surface);
+}
+
+struct pipe_resource *si_texture_create(struct pipe_screen *screen,
+				        const struct pipe_resource *templ)
+{
+	return si_texture_create_with_modifiers(screen, templ, NULL, 0);
 }
 
 static struct pipe_resource *si_texture_from_handle(struct pipe_screen *screen,
@@ -1479,7 +1495,7 @@ static struct pipe_resource *si_texture_from_handle(struct pipe_screen *screen,
 
 	r = si_init_surface(sscreen, &surface, templ, num_color_samples,
 			    array_mode, stride, offset, true, is_scanout,
-			    false, false);
+			    false, false, whandle->modifier != 0xffffffffffffffffull ? 1 : 0, &whandle->modifier);
 	if (r) {
 		return NULL;
 	}
@@ -2413,7 +2429,7 @@ si_texture_from_memobj(struct pipe_screen *screen,
 
 	r = si_init_surface(sscreen, &surface, templ, num_color_samples,
 			    array_mode, memobj->stride, offset, true,
-			    is_scanout, false, false);
+			    is_scanout, false, false, 0, NULL);
 	if (r)
 		return NULL;
 
@@ -2455,6 +2471,26 @@ static bool si_check_resource_capability(struct pipe_screen *screen,
 	return true;
 }
 
+static void si_query_dmabuf_modifiers(struct pipe_screen *screen,
+				      enum pipe_format format, int max,
+				      uint64_t *modifiers, unsigned *external_only,
+				      int *count)
+{
+	struct si_screen *sscreen = (struct si_screen*)screen;
+	unsigned bpp = 8 * util_format_get_blocksize(format);
+
+	if (!max) {
+		sscreen->ws->list_modifiers(sscreen->ws, bpp, count, NULL);
+	} else {
+		*count = max;
+		sscreen->ws->list_modifiers(sscreen->ws, bpp, count, modifiers);
+		if (external_only) {
+			for (int i = 0; i < *count; ++i)
+				external_only[i] = 0;
+		}
+	}
+}
+
 void si_init_screen_texture_functions(struct si_screen *sscreen)
 {
 	sscreen->b.resource_from_handle = si_texture_from_handle;
@@ -2463,6 +2499,8 @@ void si_init_screen_texture_functions(struct si_screen *sscreen)
 	sscreen->b.memobj_create_from_handle = si_memobj_from_handle;
 	sscreen->b.memobj_destroy = si_memobj_destroy;
 	sscreen->b.check_resource_capability = si_check_resource_capability;
+	if (sscreen->ws->list_modifiers)
+		sscreen->b.query_dmabuf_modifiers = si_query_dmabuf_modifiers;
 }
 
 void si_init_context_texture_functions(struct si_context *sctx)

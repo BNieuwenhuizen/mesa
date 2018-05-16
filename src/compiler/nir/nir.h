@@ -2009,18 +2009,7 @@ typedef struct nir_shader {
     * access plus one
     */
    unsigned num_inputs, num_uniforms, num_outputs, num_shared;
-
-   /* temporary, tracking for which derefs instructions have been lowered
-    * to deref chains
-    */
-   unsigned lowered_derefs;
 } nir_shader;
-
-#define nir_assert_lowered_derefs(shader, mask) \
-   assert(((shader)->lowered_derefs & (mask)) == (mask))
-
-#define nir_assert_unlowered_derefs(shader, mask) \
-   assert(!((shader)->lowered_derefs & (mask)))
 
 static inline nir_function_impl *
 nir_shader_get_entrypoint(nir_shader *shader)

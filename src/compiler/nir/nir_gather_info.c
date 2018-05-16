@@ -355,6 +355,8 @@ gather_info_block(nir_block *block, nir_shader *shader)
 void
 nir_shader_gather_info(nir_shader *shader, nir_function_impl *entrypoint)
 {
+   nir_assert_lowered_derefs(shader, nir_lower_load_store_derefs | nir_lower_interp_derefs);
+
    shader->info.num_textures = 0;
    shader->info.num_images = 0;
    nir_foreach_variable(var, &shader->uniforms) {

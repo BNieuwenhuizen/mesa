@@ -173,7 +173,7 @@ gl_nir_lower_samplers(nir_shader *shader,
 {
    bool progress = false;
 
-   nir_assert_lowered_derefs(shader, nir_lower_texture_derefs);
+   nir_assert_unlowered_derefs(shader, nir_lower_texture_derefs);
 
    nir_foreach_function(function, shader) {
       if (function->impl)

@@ -105,6 +105,8 @@ static void si_create_compute_state_async(void *job, int thread_index)
 		assert(program->ir_type == PIPE_SHADER_IR_NIR);
 		sel.nir = program->ir.nir;
 
+		NIR_PASS_V(sel.nir, nir_lower_deref_instrs, ~0);
+
 		si_nir_scan_shader(sel.nir, &sel.info);
 		si_lower_nir(&sel);
 	}

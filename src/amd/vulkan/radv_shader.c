@@ -176,8 +176,6 @@ radv_shader_compile_to_nir(struct radv_device *device,
 		assert(exec_list_length(&nir->functions) == 1);
 		struct exec_node *node = exec_list_get_head(&nir->functions);
 		entry_point = exec_node_data(nir_function, node, node);
-
-		NIR_PASS_V(nir, nir_lower_deref_instrs, ~0);
 	} else {
 		uint32_t *spirv = (uint32_t *) module->data;
 		assert(module->size % 4 == 0);

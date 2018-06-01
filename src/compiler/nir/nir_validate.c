@@ -663,6 +663,20 @@ validate_tex_instr(nir_tex_instr *instr, validate_state *state)
       src_type_seen[instr->src[i].src_type] = true;
       validate_src(&instr->src[i].src, state,
                    0, nir_tex_instr_src_size(instr, i));
+      switch (instr->src[i].src_type) {
+      case nir_tex_src_texture_deref:
+      case nir_tex_src_sampler_deref: {
+         nir_deref_instr *deref = nir_src_as_deref(instr->src[i].src);
+         validate_assert(state, deref);
+         nir_variable *var = nir_deref_instr_get_variable(deref);
+
+         /* TODO(bnieuwenhuizen): might be relaxed in the future? */
+         validate_assert(state, var);
+
+         validate_assert(state, var->data.mode == deref->mode);
+         break;
+      }
+      }
    }
 
    if (instr->texture != NULL)

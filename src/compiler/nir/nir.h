@@ -970,10 +970,10 @@ nir_deref_instr_parent(const nir_deref_instr *instr)
 static inline nir_variable *
 nir_deref_instr_get_variable(const nir_deref_instr *instr)
 {
-   while (instr->deref_type != nir_deref_type_var)
+   while (instr && instr->deref_type != nir_deref_type_var)
       instr = nir_deref_instr_parent(instr);
 
-   return instr->var;
+   return instr ? instr->var : NULL;
 }
 
 bool nir_deref_instr_remove_if_unused(nir_deref_instr *instr);

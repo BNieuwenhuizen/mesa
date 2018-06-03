@@ -2353,7 +2353,7 @@ static void visit_image_store(struct ac_nir_context *ctx,
 	} else {
 		struct ac_image_args args = {};
 		args.opcode = ac_image_store;
-		args.data[0] = ac_to_float(&ctx->ac, get_src(ctx, instr->src[2]));
+		args.data[0] = ac_to_float(&ctx->ac, get_src(ctx, instr->src[src_shift + 2]));
 		get_image_coords(ctx, instr, &args);
 		args.resource = get_image_descriptor(ctx, instr, AC_DESC_IMAGE, true);;
 		args.dim = get_ac_image_dim(&ctx->ac, glsl_get_sampler_dim(type),

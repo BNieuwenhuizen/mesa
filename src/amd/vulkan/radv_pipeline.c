@@ -2025,8 +2025,6 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 			nir[i] = nir_shader_clone(NULL, nir[i]);
 		}
 
-		NIR_PASS_V(nir[i], nir_lower_deref_instrs, ~0);
-
 		if (first != last) {
 			nir_variable_mode mask = 0;
 
@@ -2040,9 +2038,9 @@ void radv_create_shaders(struct radv_pipeline *pipeline,
 				nir_lower_io_to_scalar_early(nir[i], mask);
 				radv_optimize_nir(nir[i], false);
 			}
-
-			NIR_PASS_V(nir[i], nir_lower_deref_instrs, ~0);
 		}
+
+		NIR_PASS_V(nir[i], nir_lower_deref_instrs, ~0);
 	}
 
 	if (nir[MESA_SHADER_TESS_CTRL]) {

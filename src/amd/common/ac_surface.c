@@ -29,6 +29,7 @@
 #include "amd_family.h"
 #include "addrlib/amdgpu_asic_addr.h"
 #include "ac_gpu_info.h"
+#include "sid.h"
 #include "util/macros.h"
 #include "util/u_atomic.h"
 #include "util/u_math.h"
@@ -303,7 +304,9 @@ static int gfx6_compute_level(ADDR_HANDLE addrlib,
 	if (config->info.levels == 1 &&
 	    AddrSurfInfoIn->tileMode == ADDR_TM_LINEAR_ALIGNED &&
 	    AddrSurfInfoIn->bpp &&
-	    util_is_power_of_two_or_zero(AddrSurfInfoIn->bpp)) {
+	    util_is_power_of_two_or_zero(AddrSurfInfoIn->bpp) &&
+	    (surf->modifier == DRM_FORMAT_MOD_INVALID ||
+	     surf->modifier == DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_LINEAR))) {
 		unsigned alignment = 256 / (AddrSurfInfoIn->bpp / 8);
 
 		AddrSurfInfoIn->width = align(AddrSurfInfoIn->width, alignment);
@@ -547,6 +550,82 @@ static int gfx6_surface_settings(ADDR_HANDLE addrlib,
 	return 0;
 }
 
+static unsigned
+gfx6_get_tiling_index(const struct radeon_info *info, unsigned bpp, enum radeon_surf_mode surf_mode, bool displayable)
+{
+	if (surf_mode == RADEON_SURF_MODE_LINEAR_ALIGNED)
+		return 8;
+	if (surf_mode == RADEON_SURF_MODE_1D)
+		return displayable ? 9 : 13;
+
+	if (info->chip_class >= CIK) {
+		return displayable ? 10 : 14;
+	} else {
+		if (displayable) {
+			switch(bpp) {
+			case 8:
+				return 10;
+			case 16:
+				return 11;
+			case 32:
+			case 64:
+				return 12;
+			default:
+				unreachable("unhandled format bpp");
+			}
+		} else {
+			switch(bpp) {
+			case 8:
+				return 14;
+			case 16:
+				return 15;
+			case 32:
+				return 16;
+			case 64:
+			case 128:
+				return 17;
+			default:
+				unreachable("unhandled format bpp");
+			}
+		}
+	}
+}
+
+static uint64_t
+gfx6_get_modifier(const struct radeon_info *info, unsigned index, unsigned bpp)
+{
+	unsigned array_mode, micro_tile_mode, pipe_config, bank_width, bank_height, macro_tile_aspect, num_banks;
+
+	array_mode = G_009910_ARRAY_MODE(info->si_tile_mode_array[index]);
+	pipe_config = G_009910_PIPE_CONFIG(info->si_tile_mode_array[index]);
+
+	if (info->chip_class >= CIK) {
+		unsigned macro_index = ffs(bpp / 8) - 1;
+
+		micro_tile_mode = G_009910_MICRO_TILE_MODE_NEW(info->si_tile_mode_array[index]);
+
+		bank_width = G_009990_BANK_WIDTH(info->cik_macrotile_mode_array[macro_index]);
+		bank_height = G_009990_BANK_WIDTH(info->cik_macrotile_mode_array[macro_index]);
+		macro_tile_aspect = G_009990_BANK_WIDTH(info->cik_macrotile_mode_array[macro_index]);
+		num_banks = G_009990_BANK_WIDTH(info->cik_macrotile_mode_array[macro_index]);
+	} else {
+		micro_tile_mode = G_009910_MICRO_TILE_MODE(info->si_tile_mode_array[index]);
+
+		bank_width = G_009910_BANK_WIDTH(info->si_tile_mode_array[index]);
+		bank_height = G_009910_BANK_WIDTH(info->si_tile_mode_array[index]);
+		macro_tile_aspect = G_009910_MACRO_TILE_ASPECT(info->si_tile_mode_array[index]);
+		num_banks = G_009910_NUM_BANKS(info->si_tile_mode_array[index]);
+	}
+
+	if (array_mode >= V_009910_ARRAY_2D_TILED_THIN1) {
+		return DRM_FORMAT_MOD_AMD_GFX8_TILING(array_mode, micro_tile_mode, pipe_config, bank_width, bank_height, macro_tile_aspect, num_banks);
+	} else if (array_mode >= V_009910_ARRAY_1D_TILED_THIN1) {
+		return DRM_FORMAT_MOD_AMD_GFX8_1D_TILED(array_mode, micro_tile_mode);
+	} else {
+		return DRM_FORMAT_MOD_AMD_GFX8_1D_TILED(array_mode, 0);
+	}
+}
+
 /**
  * Fill in the tiling information in \p surf based on the given surface config.
  *
@@ -557,6 +636,7 @@ static int gfx6_compute_surface(ADDR_HANDLE addrlib,
 				const struct radeon_info *info,
 				const struct ac_surf_config *config,
 				enum radeon_surf_mode mode,
+				unsigned modifier_count, const uint64_t *modifiers,
 				struct radeon_surf *surf)
 {
 	unsigned level;
@@ -706,9 +786,65 @@ static int gfx6_compute_surface(ADDR_HANDLE addrlib,
 		AddrSurfInfoIn.flags.noStencil = 1;
 	}
 
+	surf->modifier = DRM_FORMAT_MOD_INVALID;
+
 	/* Set preferred macrotile parameters. This is usually required
 	 * for shared resources. This is for 2D tiling only. */
-	if (AddrSurfInfoIn.tileMode >= ADDR_TM_2D_TILED_THIN1 &&
+	if (modifier_count && (modifier_count > 1 || modifiers[0] != DRM_FORMAT_MOD_INVALID)) {
+		assert(AddrSurfInfoIn.flags.color);
+		assert(!AddrSurfInfoIn.flags.cube);
+		assert( AddrSurfInfoIn.numSamples == 1);
+		assert(config->info.levels == 1);
+		assert (!compressed);
+
+		unsigned bpp = surf->bpe * 8;
+		AddrSurfInfoIn.flags.opt4Space = 0;
+
+		const struct {
+			uint64_t modifier;
+			unsigned index;
+			bool displayable;
+		} preferred_modifiers[] = {
+			{ DRM_FORMAT_MOD_INVALID, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_2D, false), false },
+			{ DRM_FORMAT_MOD_INVALID, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_2D, true), true },
+			{ DRM_FORMAT_MOD_INVALID, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_1D, false), false },
+			{ DRM_FORMAT_MOD_INVALID, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_1D, true), true },
+			{ DRM_FORMAT_MOD_INVALID, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_LINEAR_ALIGNED, true), true },
+			{
+				DRM_FORMAT_MOD_LINEAR,
+				gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_LINEAR_ALIGNED, true),
+				true
+			},
+			{
+				DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_LINEAR),
+				gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_LINEAR_ALIGNED, true),
+				false
+			},
+		};
+
+		for (unsigned i = 0; i < ARRAY_SIZE(preferred_modifiers); ++i) {
+			uint64_t modifier = preferred_modifiers[i].modifier;
+			if (modifier == DRM_FORMAT_MOD_INVALID)
+				modifier= gfx6_get_modifier(info, preferred_modifiers[i].index, bpp);
+
+			bool found = false;
+			for (unsigned j = 0; !found && j < modifier_count; ++j) {
+				if (modifiers[j] == modifier)
+					found = true;
+			}
+
+			if (found) {
+				surf->modifier = modifier;
+				AddrSurfInfoIn.tileIndex = preferred_modifiers[i].index;
+				AddrSurfInfoIn.flags.display = preferred_modifiers[i].displayable;
+				break;
+			}
+		}
+
+		if (surf->modifier == DRM_FORMAT_MOD_INVALID)
+			return -1;
+
+	} else if (AddrSurfInfoIn.tileMode >= ADDR_TM_2D_TILED_THIN1 &&
 	    surf->u.legacy.bankw && surf->u.legacy.bankh &&
 	    surf->u.legacy.mtilea && surf->u.legacy.tile_split) {
 		/* If any of these parameters are incorrect, the calculation
@@ -733,29 +869,8 @@ static int gfx6_compute_surface(ADDR_HANDLE addrlib,
 		assert(!(surf->flags & RADEON_SURF_Z_OR_SBUFFER));
 		assert(AddrSurfInfoIn.tileMode == ADDR_TM_2D_TILED_THIN1);
 
-		if (info->chip_class == SI) {
-			if (AddrSurfInfoIn.tileType == ADDR_DISPLAYABLE) {
-				if (surf->bpe == 2)
-					AddrSurfInfoIn.tileIndex = 11; /* 16bpp */
-				else
-					AddrSurfInfoIn.tileIndex = 12; /* 32bpp */
-			} else {
-				if (surf->bpe == 1)
-					AddrSurfInfoIn.tileIndex = 14; /* 8bpp */
-				else if (surf->bpe == 2)
-					AddrSurfInfoIn.tileIndex = 15; /* 16bpp */
-				else if (surf->bpe == 4)
-					AddrSurfInfoIn.tileIndex = 16; /* 32bpp */
-				else
-					AddrSurfInfoIn.tileIndex = 17; /* 64bpp (and 128bpp) */
-			}
-		} else {
-			/* CIK - VI */
-			if (AddrSurfInfoIn.tileType == ADDR_DISPLAYABLE)
-				AddrSurfInfoIn.tileIndex = 10; /* 2D displayable */
-			else
-				AddrSurfInfoIn.tileIndex = 14; /* 2D non-displayable */
-
+		AddrSurfInfoIn.tileIndex = gfx6_get_tiling_index(info, surf->bpe * 8, RADEON_SURF_MODE_2D, AddrSurfInfoIn.tileType == ADDR_DISPLAYABLE);
+		if (info->chip_class >= CIK) {
 			/* Addrlib doesn't set this if tileIndex is forced like above. */
 			AddrSurfInfoOut.macroModeIndex = cik_get_macro_tile_index(surf);
 		}
@@ -1599,7 +1714,7 @@ int ac_compute_surface(ADDR_HANDLE addrlib, const struct radeon_info *info,
 	if (info->chip_class >= GFX9)
 		return gfx9_compute_surface(addrlib, info, config, mode, modifier_count, modifiers, surf);
 	else
-		return gfx6_compute_surface(addrlib, info, config, mode, surf);
+		return gfx6_compute_surface(addrlib, info, config, mode, modifier_count, modifiers, surf);
 }
 
 
@@ -1610,6 +1725,33 @@ static void add_array(unsigned *idx, unsigned *count, uint64_t * modifiers, uint
 	} else if (*idx < *count) {
 		modifiers[(*idx)++] = modifier;
 	}
+}
+
+static
+int gfx6_list_modifiers(ADDR_HANDLE addrlib, const struct radeon_info *info,
+                        unsigned bpp,
+                        unsigned *count, uint64_t *modifiers)
+{
+        unsigned idx = 0;
+        // Roughly the order of preference, though things like opt4Space can change our preferences.
+        if (util_is_power_of_two_or_zero(bpp)) {
+		add_array(&idx, count, modifiers, gfx6_get_modifier(info, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_2D, false), bpp));
+		add_array(&idx, count, modifiers, gfx6_get_modifier(info, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_2D, true), bpp));
+		add_array(&idx, count, modifiers, gfx6_get_modifier(info, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_1D, false), bpp));
+		add_array(&idx, count, modifiers, gfx6_get_modifier(info, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_1D, true), bpp));
+	}
+
+	add_array(&idx, count, modifiers, gfx6_get_modifier(info, gfx6_get_tiling_index(info, bpp, RADEON_SURF_MODE_LINEAR_ALIGNED, true), bpp));
+	add_array(&idx, count, modifiers, DRM_FORMAT_MOD_LINEAR);
+
+	if (util_is_power_of_two_or_zero(bpp)) {
+		/* This is linear aligned to 1024 bytes, which we support. Only do this last though,
+		 * so we only use the extra memory/alignment when needed. */
+		add_array(&idx, count, modifiers, DRM_FORMAT_MOD_AMD_GFX9_TILED(ADDR_SW_LINEAR));
+	}
+
+	*count = idx;
+	return 0;
 }
 
 static
@@ -1643,5 +1785,5 @@ int ac_list_modifiers(ADDR_HANDLE addrlib, const struct radeon_info *info,
 	if (info->chip_class >= GFX9)
 		return gfx9_list_modifiers(addrlib, info, bpp, count, modifiers);
 	else
-		abort();
+		return gfx6_list_modifiers(addrlib, info, bpp, count, modifiers);
 }

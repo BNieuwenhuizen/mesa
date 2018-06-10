@@ -756,7 +756,8 @@ static boolean si_texture_get_handle(struct pipe_screen* screen,
 		}
 
 		/* Set metadata. */
-		if (!res->b.is_shared || update_metadata) {
+		if (rtex->surface.modifier != 0xffffffffffffffffull &&
+		    (!res->b.is_shared || update_metadata)) {
 			si_texture_init_metadata(sscreen, rtex, &metadata);
 			si_query_opaque_metadata(sscreen, rtex, &metadata);
 
@@ -1487,9 +1488,11 @@ static struct pipe_resource *si_texture_from_handle(struct pipe_screen *screen,
 	if (!buf)
 		return NULL;
 
-	sscreen->ws->buffer_get_metadata(buf, &metadata);
-	si_surface_import_metadata(sscreen, &surface, &metadata,
-				     &array_mode, &is_scanout);
+	if (whandle->modifier == 0xffffffffffffffffull) {
+		sscreen->ws->buffer_get_metadata(buf, &metadata);
+		si_surface_import_metadata(sscreen, &surface, &metadata,
+					   &array_mode, &is_scanout);
+	}
 
 	unsigned num_color_samples = si_get_num_color_samples(sscreen, templ, true);
 
@@ -1508,7 +1511,11 @@ static struct pipe_resource *si_texture_from_handle(struct pipe_screen *screen,
 	rtex->buffer.b.is_shared = true;
 	rtex->buffer.external_usage = usage;
 
-	si_apply_opaque_metadata(sscreen, rtex, &metadata);
+	if (whandle->modifier == 0xffffffffffffffffull) {
+		si_apply_opaque_metadata(sscreen, rtex, &metadata);
+	} else {
+	   rtex->dcc_offset = 0;
+	}
 
 	assert(rtex->surface.tile_swizzle == 0);
 	return &rtex->buffer.b.b;

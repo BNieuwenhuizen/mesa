@@ -1471,6 +1471,13 @@ struct radv_cmask_info {
 	unsigned slice_tile_max;
 };
 
+
+struct radv_image_plane {
+	VkFormat format;
+	struct radeon_surf surface;
+	uint64_t offset;
+};
+
 struct radv_image {
 	VkImageType type;
 	/* The original VkFormat provided by the client.  This may not match any
@@ -1496,7 +1503,6 @@ struct radv_image {
 	uint64_t dcc_offset;
 	uint64_t htile_offset;
 	bool tc_compatible_htile;
-	struct radeon_surf surface;
 
 	struct radv_fmask_info fmask;
 	struct radv_cmask_info cmask;
@@ -1513,6 +1519,9 @@ struct radv_image {
 
 	/* For VK_ANDROID_native_buffer, the WSI image owns the memory, */
 	VkDeviceMemory owned_memory;
+
+	unsigned plane_count;
+	struct radv_image_plane planes[0];
 };
 
 /* Whether the image has a htile that is known consistent with the contents of
@@ -1563,7 +1572,7 @@ radv_image_has_fmask(const struct radv_image *image)
 static inline bool
 radv_image_has_dcc(const struct radv_image *image)
 {
-	return image->surface.dcc_size;
+	return image->planes[0].surface.dcc_size;
 }
 
 /**
@@ -1573,7 +1582,7 @@ static inline bool
 radv_dcc_enabled(const struct radv_image *image, unsigned level)
 {
 	return radv_image_has_dcc(image) &&
-	       level < image->surface.num_dcc_levels;
+	       level < image->planes[0].surface.num_dcc_levels;
 }
 
 /**
@@ -1593,7 +1602,7 @@ radv_image_has_CB_metadata(const struct radv_image *image)
 static inline bool
 radv_image_has_htile(const struct radv_image *image)
 {
-	return image->surface.htile_size;
+	return image->planes[0].surface.htile_size;
 }
 
 /**
@@ -1743,7 +1752,6 @@ struct radv_color_buffer_info {
 	uint64_t cb_color_cmask;
 	uint64_t cb_color_fmask;
 	uint64_t cb_dcc_base;
-	uint32_t cb_color_pitch;
 	uint32_t cb_color_slice;
 	uint32_t cb_color_view;
 	uint32_t cb_color_info;
@@ -1752,6 +1760,10 @@ struct radv_color_buffer_info {
 	uint32_t cb_dcc_control;
 	uint32_t cb_color_cmask_slice;
 	uint32_t cb_color_fmask_slice;
+	union {
+		uint32_t cb_color_pitch; // GFX6-GFX8
+		uint32_t cb_mrt_epitch; // GFX9+
+	};
 };
 
 struct radv_ds_buffer_info {

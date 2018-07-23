@@ -1203,10 +1203,21 @@ static struct radeon_winsys_ctx *radv_amdgpu_ctx_create(struct radeon_winsys *_w
 							enum radeon_ctx_priority priority)
 {
 	struct radv_amdgpu_winsys *ws = radv_amdgpu_winsys(_ws);
-	struct radv_amdgpu_ctx *ctx = CALLOC_STRUCT(radv_amdgpu_ctx);
+	struct radv_amdgpu_ctx *ctx;
 	uint32_t amdgpu_priority = radv_to_amdgpu_priority(priority);
 	int r;
 
+	pthread_mutex_lock(&ws->ctx_cache_lock);
+	list_for_each_entry_safe(struct radv_amdgpu_ctx, ctx, &ws->ctx_cache_list, ctx_cache_list) {
+		if (ctx->amdgpu_priority == amdgpu_priority) {
+			list_del(&ctx->ctx_cache_list);
+			pthread_mutex_unlock(&ws->ctx_cache_lock);
+			return (struct radeon_winsys_ctx *)ctx;
+		}
+	}
+	pthread_mutex_unlock(&ws->ctx_cache_lock);
+
+	ctx = CALLOC_STRUCT(radv_amdgpu_ctx);
 	if (!ctx)
 		return NULL;
 
@@ -1232,12 +1243,20 @@ error_create:
 	return NULL;
 }
 
-static void radv_amdgpu_ctx_destroy(struct radeon_winsys_ctx *rwctx)
+void radv_amdgpu_ctx_destroy_internal(struct radv_amdgpu_ctx *ctx)
 {
-	struct radv_amdgpu_ctx *ctx = (struct radv_amdgpu_ctx *)rwctx;
 	ctx->ws->base.buffer_destroy(ctx->fence_bo);
 	amdgpu_cs_ctx_free(ctx->ctx);
 	FREE(ctx);
+}
+
+static void radv_amdgpu_ctx_destroy(struct radeon_winsys_ctx *rwctx)
+{
+	struct radv_amdgpu_ctx *ctx = (struct radv_amdgpu_ctx *)rwctx;
+
+	pthread_mutex_lock(&ctx->ws->ctx_cache_lock);
+	list_add(&ctx->ctx_cache_list, &ctx->ws->ctx_cache_list);
+	pthread_mutex_unlock(&ctx->ws->ctx_cache_lock);
 }
 
 static bool radv_amdgpu_ctx_wait_idle(struct radeon_winsys_ctx *rwctx,

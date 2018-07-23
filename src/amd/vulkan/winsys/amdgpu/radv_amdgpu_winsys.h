@@ -52,6 +52,9 @@ struct radv_amdgpu_winsys {
 
 	pthread_mutex_t global_bo_list_lock;
 	struct list_head global_bo_list;
+
+	pthread_mutex_t ctx_cache_lock;
+	struct list_head ctx_cache_list;
 };
 
 static inline struct radv_amdgpu_winsys *

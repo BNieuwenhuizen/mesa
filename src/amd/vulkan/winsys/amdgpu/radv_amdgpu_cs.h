@@ -54,6 +54,9 @@ struct radv_amdgpu_ctx {
 
 	struct radeon_winsys_bo *fence_bo;
 	uint64_t *fence_map;
+
+	struct list_head ctx_cache_list;
+	uint32_t amdgpu_priority;
 };
 
 static inline struct radv_amdgpu_ctx *
@@ -61,6 +64,8 @@ radv_amdgpu_ctx(struct radeon_winsys_ctx *base)
 {
 	return (struct radv_amdgpu_ctx *)base;
 }
+
+void radv_amdgpu_ctx_destroy_internal(struct radv_amdgpu_ctx *ctx);
 
 void radv_amdgpu_cs_init_functions(struct radv_amdgpu_winsys *ws);
 

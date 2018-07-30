@@ -626,7 +626,7 @@ radv_physical_device_get_format_properties(struct radv_physical_device *physical
 	const struct vk_format_description *desc = vk_format_description(format);
 	bool blendable;
 	bool scaled = false;
-	if (!desc || vk_format_get_plane_count(format) > 1) {
+	if (!desc) {
 		out_properties->linearTilingFeatures = linear;
 		out_properties->optimalTilingFeatures = tiled;
 		out_properties->bufferFeatures = buffer;
@@ -641,6 +641,21 @@ radv_physical_device_get_format_properties(struct radv_physical_device *physical
 		out_properties->optimalTilingFeatures = tiled;
 		out_properties->bufferFeatures = buffer;
 		return;
+	}
+
+	if (desc->layout == VK_FORMAT_LAYOUT_MULTIPLANE ||
+	    desc->layout == VK_FORMAT_LAYOUT_SUBSAMPLED) {
+		uint32_t tiling = VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
+		                  VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+		                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+		                  VK_FORMAT_FEATURE_MIDPOINT_CHROMA_SAMPLES_BIT |
+		                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT |
+		                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_BIT;
+		out_properties->linearTilingFeatures = tiling;
+		out_properties->optimalTilingFeatures = tiling;
+		out_properties->bufferFeatures = 0;
+		return;
+
 	}
 
 	if (radv_is_storage_image_format_supported(physical_device, format)) {

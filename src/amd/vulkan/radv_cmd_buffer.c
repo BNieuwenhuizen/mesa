@@ -1525,7 +1525,7 @@ radv_emit_framebuffer_state(struct radv_cmd_buffer *cmd_buffer)
 
 		radv_cs_add_buffer(cmd_buffer->device->ws, cmd_buffer->cs, att->attachment->bo);
 
-		assert(att->attachment->aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT);
+		assert(att->attachment->aspect_mask & (VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT | VK_IMAGE_ASPECT_PLANE_2_BIT));
 		radv_emit_fb_color_state(cmd_buffer, i, att, image, layout);
 
 		radv_load_color_clear_metadata(cmd_buffer, image, i);

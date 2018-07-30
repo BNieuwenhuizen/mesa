@@ -280,7 +280,10 @@ radv_meta_blit2d_normal_dst(struct radv_cmd_buffer *cmd_buffer,
 					VK_SHADER_STAGE_VERTEX_BIT, 0, 16,
 					vertex_push_constants);
 
-			if (aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT) {
+			if (aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT ||
+			    aspect_mask == VK_IMAGE_ASPECT_PLANE_0_BIT ||
+			    aspect_mask == VK_IMAGE_ASPECT_PLANE_1_BIT ||
+			    aspect_mask == VK_IMAGE_ASPECT_PLANE_2_BIT) {
 				unsigned fs_key = radv_format_meta_fs_key(dst_temps.iview.vk_format);
 				unsigned dst_layout = radv_meta_dst_layout_from_layout(dst->current_layout);
 

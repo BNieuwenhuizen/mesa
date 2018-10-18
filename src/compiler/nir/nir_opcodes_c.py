@@ -92,9 +92,9 @@ nir_type_conversion_op(nir_alu_type src, nir_alu_type dst, nir_rounding_mode rnd
 %           endfor
             case nir_type_bool:
 %              if src_t == 'float':
-                  return nir_op_f2b;
+                  return nir_op_f2b32;
 %              else:
-                  return nir_op_i2b;
+                  return nir_op_i2b32;
 %              endif
             default:
                unreachable("Invalid nir alu base type");
@@ -104,9 +104,9 @@ nir_type_conversion_op(nir_alu_type src, nir_alu_type dst, nir_rounding_mode rnd
          switch (dst_base) {
             case nir_type_int:
             case nir_type_uint:
-               return nir_op_b2i;
+               return nir_op_b322i;
             case nir_type_float:
-               return nir_op_b2f;
+               return nir_op_b322f;
             default:
                unreachable("Invalid nir alu base type");
          }

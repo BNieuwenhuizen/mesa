@@ -535,7 +535,7 @@ glsl_get_natural_size_align_bytes(const struct glsl_type *type,
    case GLSL_TYPE_DOUBLE:
    case GLSL_TYPE_UINT64:
    case GLSL_TYPE_INT64: {
-      unsigned N = glsl_get_bit_size(type) / 8;
+      unsigned N = DIV_ROUND_UP(glsl_get_bit_size(type), 8);
       *size = N * type->components();
       *align = N;
       break;

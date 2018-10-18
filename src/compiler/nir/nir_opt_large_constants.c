@@ -74,6 +74,11 @@ handle_constant_store(nir_builder *b, nir_intrinsic_instr *store,
 
    nir_const_value *val = nir_src_as_const_value(store->src[1]);
    switch (bit_size) {
+   case 1:
+      for (unsigned i = 0; i < num_components; i++)
+         ((uint8_t *)dst)[i] = val->b[i];
+      break;
+
    case 8:
       for (unsigned i = 0; i < num_components; i++)
          ((uint8_t *)dst)[i] = val->u8[i];

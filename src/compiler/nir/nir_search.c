@@ -213,6 +213,14 @@ match_value(const nir_search_value *value, nir_alu_instr *instr, unsigned src,
       case nir_type_uint:
       case nir_type_bool:
          switch (load->def.bit_size) {
+         case 1:
+            for (unsigned i = 0; i < num_components; ++i) {
+               if (load->value.b[new_swizzle[i]] !=
+                   (bool)(const_val->data.u & 1))
+                  return false;
+            }
+            return true;
+
          case 8:
             for (unsigned i = 0; i < num_components; ++i) {
                if (load->value.u8[new_swizzle[i]] !=
@@ -538,6 +546,9 @@ construct_value(const nir_search_value *value,
       case nir_type_int:
          load->def.name = ralloc_asprintf(load, "%" PRIi64, c->data.i);
          switch (bitsize->dest_size) {
+         case 1:
+            load->value.b[0] = c->data.i & 1;
+            break;
          case 8:
             load->value.i8[0] = c->data.i;
             break;
@@ -558,6 +569,9 @@ construct_value(const nir_search_value *value,
       case nir_type_uint:
          load->def.name = ralloc_asprintf(load, "%" PRIu64, c->data.u);
          switch (bitsize->dest_size) {
+         case 1:
+            load->value.b[0] = c->data.u & 1;
+            break;
          case 8:
             load->value.u8[0] = c->data.u;
             break;
@@ -575,9 +589,19 @@ construct_value(const nir_search_value *value,
          }
          break;
 
-      case nir_type_bool32:
-         load->value.u32[0] = c->data.u;
+      case nir_type_bool:
+         switch (bitsize->dest_size) {
+         case 1:
+            load->value.b[0] = c->data.u;
+            break;
+         case 32:
+            load->value.u32[0] = c->data.u ? NIR_TRUE : NIR_FALSE;
+            break;
+         default:
+            unreachable("unknown bit size");
+         }
          break;
+
       default:
          unreachable("Invalid alu source type");
       }

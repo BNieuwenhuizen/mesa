@@ -17,7 +17,7 @@ def type_sizes(type_):
     elif type_ == 'float':
         return [16, 32, 64]
     else:
-        return [8, 16, 32, 64]
+        return [1, 8, 16, 32, 64]
 
 def type_add_size(type_, size):
     if type_has_size(type_):
@@ -47,6 +47,8 @@ def get_const_field(type_):
         m = type_split_re.match(type_)
         if not m:
             raise Exception(str(type_))
+        if int(m.group('bits')) == 1:
+            return 'b'
         return m.group('type')[0] + m.group('bits')
 
 template = """\
@@ -257,7 +259,10 @@ unpack_half_1x16(uint16_t u)
 typedef float float16_t;
 typedef float float32_t;
 typedef double float64_t;
+typedef bool bool1_t;
 typedef bool bool32_t;
+typedef int8_t int1_t;
+typedef uint8_t uint1_t;
 % for type in ["float", "int", "uint"]:
 % for width in type_sizes(type):
 struct ${type}${width}_vec {
@@ -268,6 +273,13 @@ struct ${type}${width}_vec {
 };
 % endfor
 % endfor
+
+struct bool1_vec {
+    bool x;
+    bool y;
+    bool z;
+    bool w;
+};
 
 struct bool32_vec {
     bool x;
@@ -295,7 +307,10 @@ struct bool32_vec {
 
       const struct ${input_types[j]}_vec src${j} = {
       % for k in range(op.input_sizes[j]):
-         % if input_types[j] == "bool32":
+         % if input_types[j] == "int1":
+             /* 1-bit integers use a 0/-1 convention */
+             -(int1_t)_src[${j}].b[${k}],
+         % elif input_types[j] == "bool32":
             _src[${j}].u32[${k}] != 0,
          % elif input_types[j] == "float16":
             _mesa_half_to_float(_src[${j}].u16[${k}]),
@@ -322,6 +337,9 @@ struct bool32_vec {
             % elif "src" + str(j) not in op.const_expr:
                ## Avoid unused variable warnings
                <% continue %>
+            % elif input_types[j] == "int1":
+               /* 1-bit integers use a 0/-1 convention */
+               const int1_t src${j} = -(int1_t)_src[${j}].b[_i];
             % elif input_types[j] == "bool32":
                const bool src${j} = _src[${j}].u32[_i] != 0;
             % elif input_types[j] == "float16":
@@ -346,7 +364,10 @@ struct bool32_vec {
 
          ## Store the current component of the actual destination to the
          ## value of dst.
-         % if output_type == "bool32":
+         % if output_type == "int1" or output_type == "uint1":
+            /* 1-bit integers get truncated */
+            _dst_val.b[_i] = dst & 1;
+         % elif output_type == "bool32":
             ## Sanitize the C value to a proper NIR bool
             _dst_val.u32[_i] = dst ? NIR_TRUE : NIR_FALSE;
          % elif output_type == "float16":
@@ -375,7 +396,10 @@ struct bool32_vec {
       ## For each component in the destination, copy the value of dst to
       ## the actual destination.
       % for k in range(op.output_size):
-         % if output_type == "bool32":
+         % if output_type == "int1" or output_type == "uint1":
+            /* 1-bit integers get truncated */
+            _dst_val.b[${k}] = dst.${"xyzw"[k]} & 1;
+         % elif output_type == "bool32":
             ## Sanitize the C value to a proper NIR bool
             _dst_val.u32[${k}] = dst.${"xyzw"[k]} ? NIR_TRUE : NIR_FALSE;
          % elif output_type == "float16":

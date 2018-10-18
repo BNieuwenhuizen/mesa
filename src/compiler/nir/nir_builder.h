@@ -318,7 +318,10 @@ nir_imm_intN_t(nir_builder *build, uint64_t x, unsigned bit_size)
 
    memset(&v, 0, sizeof(v));
    assert(bit_size <= 64);
-   v.i64[0] = x & (~0ull >> (64 - bit_size));
+   if (bit_size == 1)
+      v.b[0] = x & 1;
+   else
+      v.i64[0] = x & (~0ull >> (64 - bit_size));
 
    return nir_build_imm(build, 1, bit_size, v);
 }

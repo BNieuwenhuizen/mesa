@@ -978,34 +978,34 @@ static enum brw_conditional_mod
 brw_conditional_for_nir_comparison(nir_op op)
 {
    switch (op) {
-   case nir_op_flt:
-   case nir_op_ilt:
-   case nir_op_ult:
+   case nir_op_flt32:
+   case nir_op_ilt32:
+   case nir_op_ult32:
       return BRW_CONDITIONAL_L;
 
-   case nir_op_fge:
-   case nir_op_ige:
-   case nir_op_uge:
+   case nir_op_fge32:
+   case nir_op_ige32:
+   case nir_op_uge32:
       return BRW_CONDITIONAL_GE;
 
-   case nir_op_feq:
-   case nir_op_ieq:
-   case nir_op_ball_fequal2:
-   case nir_op_ball_iequal2:
-   case nir_op_ball_fequal3:
-   case nir_op_ball_iequal3:
-   case nir_op_ball_fequal4:
-   case nir_op_ball_iequal4:
+   case nir_op_feq32:
+   case nir_op_ieq32:
+   case nir_op_b32all_fequal2:
+   case nir_op_b32all_iequal2:
+   case nir_op_b32all_fequal3:
+   case nir_op_b32all_iequal3:
+   case nir_op_b32all_fequal4:
+   case nir_op_b32all_iequal4:
       return BRW_CONDITIONAL_Z;
 
-   case nir_op_fne:
-   case nir_op_ine:
-   case nir_op_bany_fnequal2:
-   case nir_op_bany_inequal2:
-   case nir_op_bany_fnequal3:
-   case nir_op_bany_inequal3:
-   case nir_op_bany_fnequal4:
-   case nir_op_bany_inequal4:
+   case nir_op_fne32:
+   case nir_op_ine32:
+   case nir_op_b32any_fnequal2:
+   case nir_op_b32any_inequal2:
+   case nir_op_b32any_fnequal3:
+   case nir_op_b32any_inequal3:
+   case nir_op_b32any_fnequal4:
+   case nir_op_b32any_inequal4:
       return BRW_CONDITIONAL_NZ;
 
    default:
@@ -1025,20 +1025,20 @@ vec4_visitor::optimize_predicate(nir_alu_instr *instr,
       nir_instr_as_alu(instr->src[0].src.ssa->parent_instr);
 
    switch (cmp_instr->op) {
-   case nir_op_bany_fnequal2:
-   case nir_op_bany_inequal2:
-   case nir_op_bany_fnequal3:
-   case nir_op_bany_inequal3:
-   case nir_op_bany_fnequal4:
-   case nir_op_bany_inequal4:
+   case nir_op_b32any_fnequal2:
+   case nir_op_b32any_inequal2:
+   case nir_op_b32any_fnequal3:
+   case nir_op_b32any_inequal3:
+   case nir_op_b32any_fnequal4:
+   case nir_op_b32any_inequal4:
       *predicate = BRW_PREDICATE_ALIGN16_ANY4H;
       break;
-   case nir_op_ball_fequal2:
-   case nir_op_ball_iequal2:
-   case nir_op_ball_fequal3:
-   case nir_op_ball_iequal3:
-   case nir_op_ball_fequal4:
-   case nir_op_ball_iequal4:
+   case nir_op_b32all_fequal2:
+   case nir_op_b32all_iequal2:
+   case nir_op_b32all_fequal3:
+   case nir_op_b32all_iequal3:
+   case nir_op_b32all_fequal4:
+   case nir_op_b32all_iequal4:
       *predicate = BRW_PREDICATE_ALIGN16_ALL4H;
       break;
    default:
@@ -1478,18 +1478,18 @@ vec4_visitor::nir_emit_alu(nir_alu_instr *instr)
    case nir_op_fddy_fine:
       unreachable("derivatives are not valid in vertex shaders");
 
-   case nir_op_ilt:
-   case nir_op_ult:
-   case nir_op_ige:
-   case nir_op_uge:
-   case nir_op_ieq:
-   case nir_op_ine:
+   case nir_op_ilt32:
+   case nir_op_ult32:
+   case nir_op_ige32:
+   case nir_op_uge32:
+   case nir_op_ieq32:
+   case nir_op_ine32:
       assert(nir_dest_bit_size(instr->dest.dest) < 64);
       /* Fallthrough */
-   case nir_op_flt:
-   case nir_op_fge:
-   case nir_op_feq:
-   case nir_op_fne: {
+   case nir_op_flt32:
+   case nir_op_fge32:
+   case nir_op_feq32:
+   case nir_op_fne32: {
       enum brw_conditional_mod conditional_mod =
          brw_conditional_for_nir_comparison(instr->op);
 
@@ -1510,14 +1510,14 @@ vec4_visitor::nir_emit_alu(nir_alu_instr *instr)
       break;
    }
 
-   case nir_op_ball_iequal2:
-   case nir_op_ball_iequal3:
-   case nir_op_ball_iequal4:
+   case nir_op_b32all_iequal2:
+   case nir_op_b32all_iequal3:
+   case nir_op_b32all_iequal4:
       assert(nir_dest_bit_size(instr->dest.dest) < 64);
       /* Fallthrough */
-   case nir_op_ball_fequal2:
-   case nir_op_ball_fequal3:
-   case nir_op_ball_fequal4: {
+   case nir_op_b32all_fequal2:
+   case nir_op_b32all_fequal3:
+   case nir_op_b32all_fequal4: {
       unsigned swiz =
          brw_swizzle_for_size(nir_op_infos[instr->op].input_sizes[0]);
 
@@ -1529,14 +1529,14 @@ vec4_visitor::nir_emit_alu(nir_alu_instr *instr)
       break;
    }
 
-   case nir_op_bany_inequal2:
-   case nir_op_bany_inequal3:
-   case nir_op_bany_inequal4:
+   case nir_op_b32any_inequal2:
+   case nir_op_b32any_inequal3:
+   case nir_op_b32any_inequal4:
       assert(nir_dest_bit_size(instr->dest.dest) < 64);
       /* Fallthrough */
-   case nir_op_bany_fnequal2:
-   case nir_op_bany_fnequal3:
-   case nir_op_bany_fnequal4: {
+   case nir_op_b32any_fnequal2:
+   case nir_op_b32any_fnequal3:
+   case nir_op_b32any_fnequal4: {
       unsigned swiz =
          brw_swizzle_for_size(nir_op_infos[instr->op].input_sizes[0]);
 
@@ -1584,8 +1584,8 @@ vec4_visitor::nir_emit_alu(nir_alu_instr *instr)
       emit(AND(dst, op[0], op[1]));
       break;
 
-   case nir_op_b2i:
-   case nir_op_b2f:
+   case nir_op_b322i:
+   case nir_op_b322f:
       if (nir_dest_bit_size(instr->dest.dest) > 32) {
          assert(dst.type == BRW_REGISTER_TYPE_DF);
          emit_conversion_to_double(dst, negate(op[0]), false);
@@ -1594,7 +1594,7 @@ vec4_visitor::nir_emit_alu(nir_alu_instr *instr)
       }
       break;
 
-   case nir_op_f2b:
+   case nir_op_f2b32:
       if (nir_src_bit_size(instr->src[0].src) == 64) {
          /* We use a MOV with conditional_mod to check if the provided value is
           * 0.0. We want this to flush denormalized numbers to zero, so we set a
@@ -1615,7 +1615,7 @@ vec4_visitor::nir_emit_alu(nir_alu_instr *instr)
       }
       break;
 
-   case nir_op_i2b:
+   case nir_op_i2b32:
       emit(CMP(dst, op[0], brw_imm_d(0), BRW_CONDITIONAL_NZ));
       break;
 
@@ -1935,7 +1935,7 @@ vec4_visitor::nir_emit_alu(nir_alu_instr *instr)
       inst->saturate = instr->dest.saturate;
       break;
 
-   case nir_op_bcsel:
+   case nir_op_b32csel:
       enum brw_predicate predicate;
       if (!optimize_predicate(instr, &predicate)) {
          emit(CMP(dst_null_d(), op[0], brw_imm_d(0), BRW_CONDITIONAL_NZ));

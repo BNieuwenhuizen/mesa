@@ -1004,24 +1004,24 @@ ntq_emit_comparison(struct vc4_compile *c, struct qreg *dest,
         enum qpu_cond cond;
 
         switch (compare_instr->op) {
-        case nir_op_feq:
-        case nir_op_ieq:
+        case nir_op_feq32:
+        case nir_op_ieq32:
         case nir_op_seq:
                 cond = QPU_COND_ZS;
                 break;
-        case nir_op_fne:
-        case nir_op_ine:
+        case nir_op_fne32:
+        case nir_op_ine32:
         case nir_op_sne:
                 cond = QPU_COND_ZC;
                 break;
-        case nir_op_fge:
-        case nir_op_ige:
-        case nir_op_uge:
+        case nir_op_fge32:
+        case nir_op_ige32:
+        case nir_op_uge32:
         case nir_op_sge:
                 cond = QPU_COND_NC;
                 break;
-        case nir_op_flt:
-        case nir_op_ilt:
+        case nir_op_flt32:
+        case nir_op_ilt32:
         case nir_op_slt:
                 cond = QPU_COND_NS;
                 break;
@@ -1048,7 +1048,7 @@ ntq_emit_comparison(struct vc4_compile *c, struct qreg *dest,
                                 qir_uniform_f(c, 1.0), qir_uniform_f(c, 0.0));
                 break;
 
-        case nir_op_bcsel:
+        case nir_op_b32csel:
                 *dest = qir_SEL(c, cond,
                                 ntq_get_alu_src(c, sel_instr, 1),
                                 ntq_get_alu_src(c, sel_instr, 2));
@@ -1208,14 +1208,14 @@ ntq_emit_alu(struct vc4_compile *c, nir_alu_instr *instr)
         case nir_op_u2f32:
                 result = qir_ITOF(c, src[0]);
                 break;
-        case nir_op_b2f:
+        case nir_op_b322f:
                 result = qir_AND(c, src[0], qir_uniform_f(c, 1.0));
                 break;
-        case nir_op_b2i:
+        case nir_op_b322i:
                 result = qir_AND(c, src[0], qir_uniform_ui(c, 1));
                 break;
-        case nir_op_i2b:
-        case nir_op_f2b:
+        case nir_op_i2b32:
+        case nir_op_f2b32:
                 qir_SF(c, src[0]);
                 result = qir_MOV(c, qir_SEL(c, QPU_COND_ZC,
                                             qir_uniform_ui(c, ~0),
@@ -1264,21 +1264,21 @@ ntq_emit_alu(struct vc4_compile *c, nir_alu_instr *instr)
         case nir_op_sne:
         case nir_op_sge:
         case nir_op_slt:
-        case nir_op_feq:
-        case nir_op_fne:
-        case nir_op_fge:
-        case nir_op_flt:
-        case nir_op_ieq:
-        case nir_op_ine:
-        case nir_op_ige:
-        case nir_op_uge:
-        case nir_op_ilt:
+        case nir_op_feq32:
+        case nir_op_fne32:
+        case nir_op_fge32:
+        case nir_op_flt32:
+        case nir_op_ieq32:
+        case nir_op_ine32:
+        case nir_op_ige32:
+        case nir_op_uge32:
+        case nir_op_ilt32:
                 if (!ntq_emit_comparison(c, &result, instr, instr)) {
                         fprintf(stderr, "Bad comparison instruction\n");
                 }
                 break;
 
-        case nir_op_bcsel:
+        case nir_op_b32csel:
                 result = ntq_emit_bcsel(c, instr, src);
                 break;
         case nir_op_fcsel:

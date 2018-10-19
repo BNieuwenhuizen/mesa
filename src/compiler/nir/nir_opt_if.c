@@ -383,7 +383,7 @@ replace_if_condition_use_with_const(nir_builder *b, nir_src *use,
                                     bool if_condition)
 {
    /* Create const */
-   nir_ssa_def *const_def = nir_build_imm(b, 1, 32, nir_boolean);
+   nir_ssa_def *const_def = nir_build_imm(b, 1, 1, nir_boolean);
 
    /* Rewrite use to use const */
    nir_src new_src = nir_src_for_ssa(const_def);
@@ -394,14 +394,14 @@ replace_if_condition_use_with_const(nir_builder *b, nir_src *use,
 }
 
 static bool
-evaluate_if_condition(nir_if *nif, nir_cursor cursor, uint32_t *value)
+evaluate_if_condition(nir_if *nif, nir_cursor cursor, bool *value)
 {
    nir_block *use_block = nir_cursor_current_block(cursor);
    if (nir_block_dominates(nir_if_first_then_block(nif), use_block)) {
-      *value = NIR_TRUE;
+      *value = true;
       return true;
    } else if (nir_block_dominates(nir_if_first_else_block(nif), use_block)) {
-      *value = NIR_FALSE;
+      *value = false;
       return true;
    } else {
       return false;
@@ -467,11 +467,11 @@ propagate_condition_eval(nir_builder *b, nir_if *nif, nir_src *use_src,
    if (nir_op_infos[alu->op].num_inputs == 1) {
       assert(alu->op == nir_op_inot || alu->op == nir_op_b2i);
 
-      if (evaluate_if_condition(nif, b->cursor, &bool_value.u32[0])) {
+      if (evaluate_if_condition(nif, b->cursor, &bool_value.b[0])) {
          assert(nir_src_bit_size(alu->src[0].src) == 32);
 
          nir_const_value result =
-            nir_eval_const_opcode(alu->op, 1, 32, &bool_value);
+            nir_eval_const_opcode(alu->op, 1, 1, &bool_value);
 
          replace_if_condition_use_with_const(b, alu_use, result,
                                              is_if_condition);
@@ -480,11 +480,11 @@ propagate_condition_eval(nir_builder *b, nir_if *nif, nir_src *use_src,
    } else {
       assert(alu->op == nir_op_ior || alu->op == nir_op_iand);
 
-      if (evaluate_if_condition(nif, b->cursor, &bool_value.u32[0])) {
+      if (evaluate_if_condition(nif, b->cursor, &bool_value.b[0])) {
          nir_ssa_def *def[2];
          for (unsigned i = 0; i < 2; i++) {
             if (alu->src[i].src.ssa == use_src->ssa) {
-               def[i] = nir_build_imm(b, 1, 32, bool_value);
+               def[i] = nir_build_imm(b, 1, 1, bool_value);
             } else {
                def[i] = alu->src[i].src.ssa;
             }
@@ -530,7 +530,7 @@ evaluate_condition_use(nir_builder *b, nir_if *nif, nir_src *use_src,
    nir_const_value value;
    b->cursor = nir_before_src(use_src, is_if_condition);
 
-   if (evaluate_if_condition(nif, b->cursor, &value.u32[0])) {
+   if (evaluate_if_condition(nif, b->cursor, &value.b[0])) {
       replace_if_condition_use_with_const(b, use_src, value, is_if_condition);
       progress = true;
    }

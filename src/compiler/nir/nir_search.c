@@ -56,10 +56,6 @@ src_is_type(nir_src src, nir_alu_type type)
    if (!src.is_ssa)
       return false;
 
-   /* Turn nir_type_bool32 into nir_type_bool...they're the same thing. */
-   if (nir_alu_type_get_base_type(type) == nir_type_bool)
-      type = nir_type_bool;
-
    if (src.ssa->parent_instr->type == nir_instr_type_alu) {
       nir_alu_instr *src_alu = nir_instr_as_alu(src.ssa->parent_instr);
       nir_alu_type output_type = nir_op_infos[src_alu->op].output_type;
@@ -215,7 +211,7 @@ match_value(const nir_search_value *value, nir_alu_instr *instr, unsigned src,
 
       case nir_type_int:
       case nir_type_uint:
-      case nir_type_bool32:
+      case nir_type_bool:
          switch (load->def.bit_size) {
          case 8:
             for (unsigned i = 0; i < num_components; ++i) {

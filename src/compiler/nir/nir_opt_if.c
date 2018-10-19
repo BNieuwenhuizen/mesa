@@ -465,7 +465,7 @@ propagate_condition_eval(nir_builder *b, nir_if *nif, nir_src *use_src,
    nir_const_value bool_value;
    b->cursor = nir_before_src(alu_use, is_if_condition);
    if (nir_op_infos[alu->op].num_inputs == 1) {
-      assert(alu->op == nir_op_inot || alu->op == nir_op_b2i);
+      assert(alu->op == nir_op_inot || alu->op == nir_op_b322i);
 
       if (evaluate_if_condition(nif, b->cursor, &bool_value.u32[0])) {
          assert(nir_src_bit_size(alu->src[0].src) == 32);
@@ -515,7 +515,7 @@ can_propagate_through_alu(nir_src *src)
        (nir_instr_as_alu(src->parent_instr)->op == nir_op_ior ||
         nir_instr_as_alu(src->parent_instr)->op == nir_op_iand ||
         nir_instr_as_alu(src->parent_instr)->op == nir_op_inot ||
-        nir_instr_as_alu(src->parent_instr)->op == nir_op_b2i))
+        nir_instr_as_alu(src->parent_instr)->op == nir_op_b322i))
       return true;
 
    return false;

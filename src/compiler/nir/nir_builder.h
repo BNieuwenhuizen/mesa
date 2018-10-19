@@ -211,9 +211,9 @@ nir_imm_bool(nir_builder *build, bool x)
    nir_const_value v;
 
    memset(&v, 0, sizeof(v));
-   v.u32[0] = x ? NIR_TRUE : NIR_FALSE;
+   v.b[0] = x;
 
-   return nir_build_imm(build, 1, 32, v);
+   return nir_build_imm(build, 1, 1, v);
 }
 
 static inline nir_ssa_def *

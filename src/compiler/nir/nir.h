@@ -811,7 +811,7 @@ nir_get_nir_type_for_glsl_base_type(enum glsl_base_type base_type)
 {
    switch (base_type) {
    case GLSL_TYPE_BOOL:
-      return nir_type_bool32;
+      return nir_type_bool1;
       break;
    case GLSL_TYPE_UINT:
       return nir_type_uint32;

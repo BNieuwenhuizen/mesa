@@ -263,7 +263,7 @@ constant_copy(ir_constant *ir, void *mem_ctx)
       assert(cols == 1);
 
       for (unsigned r = 0; r < rows; r++)
-         ret->values[0].u32[r] = ir->value.b[r] ? NIR_TRUE : NIR_FALSE;
+         ret->values[0].b[r] = ir->value.b[r];
 
       break;
 
@@ -1178,7 +1178,7 @@ nir_visitor::visit(ir_call *ir)
       case nir_intrinsic_vote_any:
       case nir_intrinsic_vote_all:
       case nir_intrinsic_vote_ieq: {
-         nir_ssa_dest_init(&instr->instr, &instr->dest, 1, 32, NULL);
+         nir_ssa_dest_init(&instr->instr, &instr->dest, 1, 1, NULL);
          instr->num_components = 1;
 
          ir_rvalue *value = (ir_rvalue *) ir->actual_parameters.get_head();

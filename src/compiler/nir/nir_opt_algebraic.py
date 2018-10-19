@@ -239,6 +239,7 @@ optimizations = [
    (('fne', ('b2f', a), 0.0), a),
    (('ieq', ('b2i', a), 0),   ('inot', a)),
    (('ine', ('b2i', a), 0),   a),
+   (('ine', ('ineg', ('b2i', a)), 0), a),
 
    (('fne', ('u2f32', a), 0.0), ('ine', a, 0)),
    (('feq', ('u2f32', a), 0.0), ('ieq', a, 0)),
@@ -528,6 +529,17 @@ optimizations = [
 
    (('bcsel', a, b, b), b),
    (('fcsel', a, b, b), b),
+
+   # D3D Boolean eumulation
+   (('bcsel', a, -1, 0), ('ineg', ('b2i', a))),
+   (('bcsel', a, 0, -1), ('ineg', ('b2i', ('inot', a)))),
+   (('iand', ('ineg', ('b2i', a)), ('ineg', ('b2i', b))),
+    ('ineg', ('b2i', ('iand', a, b)))),
+   (('ior', ('ineg', ('b2i', a)), ('ineg', ('b2i', b))),
+    ('ineg', ('b2i', ('ior', a, b)))),
+   (('iand', ('ineg', ('b2i', a)), '1.0@32'), ('b2f', a)),
+#   (('~fmul', ('b2f', a), b), ('bcsel', a, b, 0)),
+#   (('imul', ('b2i', a), b), ('bcsel', a, b, 0)),
 
    # Conversions
    (('i2b', ('b2i', a)), a),

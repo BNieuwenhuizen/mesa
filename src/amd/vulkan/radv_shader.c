@@ -606,7 +606,6 @@ shader_variant_create(struct radv_device *device,
 					&variant->info, shaders, shader_count,
 					options);
 	}
-
 	radv_destroy_llvm_compiler(&ac_llvm, thread_compiler);
 
 	radv_fill_shader_variant(device, variant, &binary, stage);

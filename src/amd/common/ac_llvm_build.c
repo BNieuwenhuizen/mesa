@@ -201,7 +201,9 @@ ac_get_type_size(LLVMTypeRef type)
 
 static LLVMTypeRef to_integer_type_scalar(struct ac_llvm_context *ctx, LLVMTypeRef t)
 {
-	if (t == ctx->f16 || t == ctx->i16)
+	if (t == ctx->i1)
+		return t;
+	else if (t == ctx->f16 || t == ctx->i16)
 		return ctx->i16;
 	else if (t == ctx->f32 || t == ctx->i32)
 		return ctx->i32;
@@ -2818,9 +2820,7 @@ void ac_build_if(struct ac_llvm_context *ctx, LLVMValueRef value,
 void ac_build_uif(struct ac_llvm_context *ctx, LLVMValueRef value,
 		  int label_id)
 {
-	LLVMValueRef cond = LLVMBuildICmp(ctx->builder, LLVMIntNE,
-					  ac_to_integer(ctx, value),
-					  ctx->i32_0, "");
+	LLVMValueRef cond = ac_to_integer(ctx, value);
 	if_cond_emit(ctx, cond, label_id);
 }
 

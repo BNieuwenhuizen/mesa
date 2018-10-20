@@ -353,7 +353,7 @@ radv_can_dump_shader(struct radv_device *device,
 		return false;
 
 	/* Only dump non-meta shaders, useful for debugging purposes. */
-	return (module && !module->nir) || is_gs_copy_shader;
+	return (module) || is_gs_copy_shader;
 }
 
 static inline bool
@@ -362,7 +362,7 @@ radv_can_dump_shader_stats(struct radv_device *device,
 {
 	/* Only dump non-meta shader stats. */
 	return device->instance->debug_flags & RADV_DEBUG_DUMP_SHADER_STATS &&
-	       module && !module->nir;
+	       module;
 }
 
 static inline unsigned shader_io_get_unique_index(gl_varying_slot slot)

@@ -1425,6 +1425,23 @@ void radv_CmdResetQueryPool(
 	}
 }
 
+void radv_ResetQueryPoolMESA(
+	VkDevice                                   _device,
+	VkQueryPool                                 queryPool,
+	uint32_t                                    firstQuery,
+	uint32_t                                    queryCount)
+{
+	RADV_FROM_HANDLE(radv_query_pool, pool, queryPool);
+
+	uint32_t value = pool->type == VK_QUERY_TYPE_TIMESTAMP
+			 ? TIMESTAMP_NOT_READY : 0;
+	uint32_t *data =  (uint32_t*)(pool->ptr + firstQuery * pool->stride);
+	uint32_t *data_end = (uint32_t*)(pool->ptr + (firstQuery + queryCount) * pool->stride);
+
+	for(uint32_t *p = data; p != data_end; ++p)
+		*p = value;
+}
+
 static unsigned event_type_for_stream(unsigned stream)
 {
 	switch (stream) {

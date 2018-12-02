@@ -1099,30 +1099,33 @@ radv_image_create(VkDevice _device,
 static void
 radv_image_view_make_descriptor(struct radv_image_view *iview,
 				struct radv_device *device,
+				VkFormat vk_format,
 				const VkComponentMapping *components,
-				bool is_storage_image, unsigned plane_id)
+				bool is_storage_image, unsigned plane_id,
+				unsigned descriptor_plane_id)
 {
 	struct radv_image *image = iview->image;
 	struct radv_image_plane *plane = &image->planes[plane_id];
 	bool is_stencil = iview->aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT;
 	uint32_t blk_w;
-	uint32_t *descriptor;
+	union radv_descriptor *descriptor;
 	uint32_t hw_level = 0;
 
 	if (is_storage_image) {
-		descriptor = iview->storage_descriptor;
+		descriptor = &iview->storage_descriptor;
 	} else {
-		descriptor = iview->descriptor;
+		descriptor = &iview->descriptor;
 	}
 
-	assert(plane->surface.blk_w % vk_format_get_blockwidth(image->vk_format) == 0);
-	blk_w = plane->surface.blk_w / vk_format_get_blockwidth(image->vk_format) * vk_format_get_blockwidth(iview->vk_format);
+	assert(vk_format_get_plane_count(vk_format) == 1);
+	assert(plane->surface.blk_w % vk_format_get_blockwidth(plane->format) == 0);
+	blk_w = plane->surface.blk_w / vk_format_get_blockwidth(plane->format) * vk_format_get_blockwidth(vk_format);
 
 	if (device->physical_device->rad_info.chip_class >= GFX9)
 		hw_level = iview->base_mip;
 	si_make_texture_descriptor(device, image, is_storage_image,
 				   iview->type,
-				   iview->vk_format,
+				   vk_format,
 				   components,
 				   hw_level, hw_level + iview->level_count - 1,
 				   iview->base_layer,
@@ -1130,8 +1133,8 @@ radv_image_view_make_descriptor(struct radv_image_view *iview,
 				   iview->extent.width,
 				   iview->extent.height,
 				   iview->extent.depth,
-				   descriptor,
-				   descriptor + 8);
+				   descriptor->plane_descriptors[descriptor_plane_id],
+				   descriptor_plane_id ? NULL : descriptor->fmask_descriptor);
 
 	const struct legacy_surf_level *base_level_info = NULL;
 	if (device->physical_device->rad_info.chip_class <= GFX9) {
@@ -1144,7 +1147,7 @@ radv_image_view_make_descriptor(struct radv_image_view *iview,
 				       base_level_info,
 				       iview->base_mip,
 				       iview->base_mip,
-				       blk_w, is_stencil, is_storage_image, descriptor);
+				       blk_w, is_stencil, is_storage_image, descriptor->plane_descriptors[descriptor_plane_id]);
 }
 
 static unsigned
@@ -1202,9 +1205,10 @@ radv_image_view_init(struct radv_image_view *iview,
 	iview->image = image;
 	iview->bo = image->bo;
 	iview->type = pCreateInfo->viewType;
-	iview->vk_format = pCreateInfo->format;
-	iview->aspect_mask = pCreateInfo->subresourceRange.aspectMask;
 	iview->plane_id = radv_plane_from_aspect(pCreateInfo->subresourceRange.aspectMask);
+	iview->aspect_mask = pCreateInfo->subresourceRange.aspectMask;
+	iview->multiple_planes = vk_format_get_plane_count(image->vk_format) > 1 && iview->aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT;
+	iview->vk_format = pCreateInfo->format;
 
 	if (iview->aspect_mask == VK_IMAGE_ASPECT_STENCIL_BIT) {
 		iview->vk_format = vk_format_stencil_only(iview->vk_format);
@@ -1281,8 +1285,11 @@ radv_image_view_init(struct radv_image_view *iview,
 	iview->base_mip = range->baseMipLevel;
 	iview->level_count = radv_get_levelCount(image, range);
 
-	radv_image_view_make_descriptor(iview, device, &pCreateInfo->components, false, iview->plane_id);
-	radv_image_view_make_descriptor(iview, device, &pCreateInfo->components, true, iview->plane_id);
+	for (unsigned i = 0; i < (iview->multiple_planes ? vk_format_get_plane_count(image->vk_format) : 1); ++i) {
+		VkFormat format = vk_format_get_plane_format(iview->vk_format, i);
+		radv_image_view_make_descriptor(iview, device, format, &pCreateInfo->components, false, iview->plane_id + i, i);
+		radv_image_view_make_descriptor(iview, device, format, &pCreateInfo->components, true, iview->plane_id + i, i);
+	}
 }
 
 bool radv_layout_has_htile(const struct radv_image *image,

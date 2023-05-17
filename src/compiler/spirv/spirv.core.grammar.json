@@ -4494,6 +4494,77 @@
       "version" : "1.6"
     },
     {
+      "opname" : "OpTypeCooperativeMatrixKHR",
+      "class"  : "Type-Declaration",
+      "opcode" : 4456,
+      "operands" : [
+        { "kind" : "IdResult" },
+        { "kind" : "IdRef",        "name" : "'Component Type'" },
+        { "kind" : "IdScope",      "name" : "'Scope'" },
+        { "kind" : "IdRef",        "name" : "'Rows'" },
+        { "kind" : "IdRef",        "name" : "'Columns'" },
+        { "kind" : "IdRef",        "name" : "'Use'" }
+      ],
+      "capabilities" : [ "CooperativeMatrixKHR" ],
+      "version" : "None"
+    },
+    {
+      "opname" : "OpCooperativeMatrixLoadKHR",
+      "class"  : "Memory",
+      "opcode" : 4457,
+      "operands" : [
+        { "kind" : "IdResultType" },
+        { "kind" : "IdResult" },
+        { "kind" : "IdRef",             "name" : "'Pointer'" },
+        { "kind" : "IdRef",             "name" : "'MemoryLayout'" },
+        { "kind" : "IdRef",             "name" : "'Stride'", "quantifier": "?" },
+        { "kind" : "MemoryAccess",      "name" : "'Memory Operand'", "quantifier" : "?" }
+      ],
+      "capabilities" : [ "CooperativeMatrixKHR" ],
+      "version" : "None"
+    },
+    {
+      "opname" : "OpCooperativeMatrixStoreKHR",
+      "class"  : "Memory",
+      "opcode" : 4458,
+      "operands" : [
+        { "kind" : "IdRef",             "name" : "'Pointer'" },
+        { "kind" : "IdRef",             "name" : "'Object'" },
+        { "kind" : "IdRef",             "name" : "'MemoryLayout'" },
+        { "kind" : "IdRef",             "name" : "'Stride'", "quantifier": "?" },
+        { "kind" : "MemoryAccess",      "name" : "'Memory Operand'", "quantifier" : "?" }
+      ],
+      "capabilities" : [ "CooperativeMatrixKHR" ],
+      "version" : "None"
+    },
+    {
+      "opname" : "OpCooperativeMatrixMulAddKHR",
+      "class"  : "Arithmetic",
+      "opcode" : 4459,
+      "operands" : [
+        { "kind" : "IdResultType" },
+        { "kind" : "IdResult" },
+        { "kind" : "IdRef",             "name" : "'A'" },
+        { "kind" : "IdRef",             "name" : "'B'" },
+        { "kind" : "IdRef",             "name" : "'C'" },
+        { "kind" : "CooperativeMatrixOperands", "name" : "'Cooperative Matrix Operands'", "quantifier" : "?" }
+      ],
+      "capabilities" : [ "CooperativeMatrixKHR" ],
+      "version" : "None"
+    },
+    {
+      "opname" : "OpCooperativeMatrixLengthKHR",
+      "class"  : "Miscellaneous",
+      "opcode" : 4460,
+      "operands" : [
+        { "kind" : "IdResultType" },
+        { "kind" : "IdResult" },
+        { "kind" : "IdRef",        "name" : "'Type'" }
+      ],
+      "capabilities" : [ "CooperativeMatrixKHR" ],
+      "version" : "None"
+    },
+    {
         "opname" : "OpTypeRayQueryKHR",
         "class" : "Reserved",
         "opcode" : 4472,
@@ -10084,6 +10155,18 @@
         {
           "enumerant" : "SYCL",
           "value" : 7
+        },
+        {
+          "enumerant" : "HERO_C",
+          "value" : 8
+        },
+        {
+          "enumerant" : "NZSL",
+          "value" : 9
+        },
+        {
+          "enumerant" : "WGSL",
+          "value" : 10
         }
       ]
     },
@@ -11606,6 +11689,16 @@
           "enumerant" : "UnormInt101010_2",
           "value" : 16,
           "capabilities" : [ "Kernel" ]
+        },
+        {
+          "enumerant" : "UnsignedIntRaw10EXT",
+          "value" : 19,
+          "capabilities" : [ "Kernel" ]
+        },
+        {
+          "enumerant" : "UnsignedIntRaw12EXT",
+          "value" : 20,
+          "capabilities" : [ "Kernel" ]
         }
       ]
     },
@@ -12705,6 +12798,15 @@
           "enumerant" : "MediaBlockIOINTEL",
           "value" : 6140,
           "capabilities" : [ "VectorComputeINTEL" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "FPMaxErrorDecorationINTEL",
+          "value" : 6170,
+          "parameters" : [
+            { "kind" : "LiteralFloat", "name" : "'Max Error'" }
+          ],
+          "capabilities" : [ "FPMaxErrorINTEL" ],
           "version" : "None"
         },
         {
@@ -15105,6 +15207,12 @@
           "version" : "None"
         },
         {
+          "enumerant" : "CooperativeMatrixKHR",
+          "value" : 6022,
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
           "enumerant" : "BitInstructions",
           "value" : 6025,
           "extensions" : [ "SPV_KHR_bit_instructions" ],
@@ -15170,6 +15278,12 @@
           "value" : 6161,
           "capabilities" : [ "FPGAKernelAttributesINTEL" ],
           "extensions" : [ "SPV_INTEL_kernel_attributes" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "FPMaxErrorINTEL",
+          "value" : 6169,
+          "extensions" : [ "SPV_INTEL_fp_max_error" ],
           "version" : "None"
         },
         {
@@ -15266,6 +15380,90 @@
           "value" : 0,
           "extensions" : [ "SPV_KHR_integer_dot_product" ],
           "version" : "1.6"
+        }
+      ]
+    },
+    {
+      "category" : "BitEnum",
+      "kind" : "CooperativeMatrixOperands",
+      "enumerants" : [
+        {
+          "enumerant" : "NoneKHR",
+          "value" : "0x0000",
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "MatrixASignedComponentsKHR",
+          "value" : "0x0001",
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "MatrixBSignedComponentsKHR",
+          "value" : "0x0002",
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "MatrixCSignedComponentsKHR",
+          "value" : "0x0004",
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "MatrixResultSignedComponentsKHR",
+          "value" : "0x0008",
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "SaturatingAccumulationKHR",
+          "value" : "0x0010",
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        }
+      ]
+    },
+    {
+      "category" : "ValueEnum",
+      "kind" : "CooperativeMatrixLayout",
+      "enumerants" : [
+        {
+          "enumerant" : "RowMajorKHR",
+          "value" : 0,
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "ColumnMajorKHR",
+          "value" : 1,
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        }
+      ]
+    },
+    {
+      "category" : "ValueEnum",
+      "kind" : "CooperativeMatrixUse",
+      "enumerants" : [
+        {
+          "enumerant" : "MatrixAKHR",
+          "value" : 0,
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "MatrixBKHR",
+          "value" : 1,
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
+        },
+        {
+          "enumerant" : "MatrixAccumulatorKHR",
+          "value" : 2,
+          "extensions" : [ "SPV_KHR_cooperative_matrix" ],
+          "version" : "None"
         }
       ]
     },

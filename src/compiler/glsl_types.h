@@ -84,6 +84,7 @@ enum glsl_base_type {
    GLSL_TYPE_UINT64,
    GLSL_TYPE_INT64,
    GLSL_TYPE_BOOL,
+   GLSL_TYPE_COOPERATIVE_MATRIX,
    GLSL_TYPE_SAMPLER,
    GLSL_TYPE_TEXTURE,
    GLSL_TYPE_IMAGE,
@@ -176,6 +177,7 @@ glsl_base_type_get_bit_size(const enum glsl_base_type base_type)
    case GLSL_TYPE_UINT:
    case GLSL_TYPE_FLOAT: /* TODO handle mediump */
    case GLSL_TYPE_SUBROUTINE:
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
       return 32;
 
    case GLSL_TYPE_FLOAT16:
@@ -288,6 +290,24 @@ enum {
    GLSL_PRECISION_LOW
 };
 
+enum glsl_cooperative_matrix_use {
+   GLSL_COOPERATIVE_MATRIX_USE_NONE = 0,
+   GLSL_COOPERATIVE_MATRIX_USE_A,
+   GLSL_COOPERATIVE_MATRIX_USE_B,
+   GLSL_COOPERATIVE_MATRIX_USE_ACCUMULATOR,
+};
+
+struct glsl_cooperative_matrix_description {
+   /* MSVC can't merge bitfields of different types and also sign extend enums,
+    * so use uint8_t for those cases.
+    */
+   uint8_t element_type:5; /* enum glsl_base_type */
+   uint8_t scope:3; /* mesa_scope */
+   uint8_t rows;
+   uint8_t cols;
+   uint8_t use; /* enum glsl_cooperative_matrix_use */
+};
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
@@ -310,6 +330,8 @@ struct glsl_type {
    unsigned sampler_array:1;
    unsigned interface_packing:2;
    unsigned interface_row_major:1;
+
+   glsl_cooperative_matrix_description cooperative_matrix;
 
    /**
     * For \c GLSL_TYPE_STRUCT this specifies if the struct is packed or not.
@@ -477,6 +499,12 @@ public:
    static const glsl_type *get_array_instance(const glsl_type *element,
                                               unsigned array_size,
                                               unsigned explicit_stride = 0);
+
+   /**
+    * Get the instance of a cooperative matrix type
+    */
+   static const glsl_type *get_cooperative_matrix_instance(
+      const glsl_cooperative_matrix_description &desc);
 
    /**
     * Get the instance of a record type
@@ -960,6 +988,11 @@ public:
       return is_array() && fields.array->is_array();
    }
 
+   bool is_cooperative_matrix() const
+   {
+      return base_type == GLSL_TYPE_COOPERATIVE_MATRIX;
+   }
+
    /**
     * Query whether or not a type is a record
     */
@@ -1281,6 +1314,9 @@ private:
    /** Constructors for array types */
    glsl_type(const glsl_type *array, unsigned length, unsigned explicit_stride);
 
+   /** Constructor for cooperative matrix types */
+   explicit glsl_type(const glsl_cooperative_matrix_description &desc);
+
    /** Constructor for subroutine types */
    glsl_type(const char *name);
 
@@ -1289,6 +1325,9 @@ private:
 
    /** Hash table containing the known array types. */
    static struct hash_table *array_types;
+
+   /** Hash table containing the known cooperative matrix types. */
+   static struct hash_table *cooperative_matrix_types;
 
    /** Hash table containing the known struct types. */
    static struct hash_table *struct_types;

@@ -148,6 +148,7 @@ bool glsl_type_is_array(const struct glsl_type *type);
 bool glsl_type_is_unsized_array(const struct glsl_type *type);
 bool glsl_type_is_array_of_arrays(const struct glsl_type *type);
 bool glsl_type_is_array_or_matrix(const struct glsl_type *type);
+bool glsl_type_is_cooperative_matrix(const struct glsl_type *type);
 bool glsl_type_is_struct(const struct glsl_type *type);
 bool glsl_type_is_interface(const struct glsl_type *type);
 bool glsl_type_is_struct_or_ifc(const struct glsl_type *type);
@@ -209,6 +210,8 @@ const struct glsl_type *glsl_array_type(const struct glsl_type *element,
                                         unsigned array_size,
                                         unsigned explicit_stride);
 
+const struct glsl_type *glsl_cooperative_matrix_type(const struct glsl_cooperative_matrix_description *desc);
+
 const struct glsl_type *glsl_struct_type(const struct glsl_struct_field *fields,
                                          unsigned num_fields, const char *name,
                                          bool packed);
@@ -264,6 +267,9 @@ unsigned glsl_type_get_image_count(const struct glsl_type *type);
 int glsl_get_field_index(const struct glsl_type *type, const char *name);
 
 bool glsl_type_is_leaf(const struct glsl_type *type);
+
+const struct glsl_type *glsl_get_cooperative_matrix_element(const struct glsl_type *type);
+const struct glsl_cooperative_matrix_description *glsl_get_cooperative_matrix_description(const struct glsl_type *type);
 
 #ifdef __cplusplus
 }

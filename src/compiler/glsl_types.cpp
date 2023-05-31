@@ -35,6 +35,7 @@
 simple_mtx_t glsl_type::hash_mutex = SIMPLE_MTX_INITIALIZER;
 hash_table *glsl_type::explicit_matrix_types = NULL;
 hash_table *glsl_type::array_types = NULL;
+hash_table *glsl_type::cooperative_matrix_types = NULL;
 hash_table *glsl_type::struct_types = NULL;
 hash_table *glsl_type::interface_types = NULL;
 hash_table *glsl_type::function_types = NULL;
@@ -431,6 +432,7 @@ const glsl_type *glsl_type::get_bare_type() const
       return get_array_instance(this->fields.array->get_bare_type(),
                                 this->length);
 
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
    case GLSL_TYPE_SAMPLER:
    case GLSL_TYPE_TEXTURE:
    case GLSL_TYPE_IMAGE:
@@ -589,6 +591,43 @@ glsl_type::glsl_type(const glsl_type *array, unsigned length,
    }
 
    this->name = n;
+}
+
+static const char *
+glsl_cooperative_matrix_use_to_string(glsl_cooperative_matrix_use use)
+{
+   switch (use) {
+   case GLSL_COOPERATIVE_MATRIX_USE_NONE:        return "NONE";
+   case GLSL_COOPERATIVE_MATRIX_USE_A:           return "A";
+   case GLSL_COOPERATIVE_MATRIX_USE_B:           return "B";
+   case GLSL_COOPERATIVE_MATRIX_USE_ACCUMULATOR: return "ACCUMULATOR";
+   default:
+      unreachable("invalid cooperative matrix use");
+   }
+};
+
+glsl_type::glsl_type(const glsl_cooperative_matrix_description &desc) :
+   base_type(GLSL_TYPE_COOPERATIVE_MATRIX), sampled_type(GLSL_TYPE_VOID),
+   sampler_dimensionality(0), sampler_shadow(0), sampler_array(0),
+   interface_packing(0), interface_row_major(0),
+   packed(0),
+   vector_elements(1), matrix_columns(0),
+   length(0), name(NULL), explicit_stride(0),
+   explicit_alignment(0)
+{
+   /* Copy exactly (with padding if any) since is used as a key in the types table. */
+   memcpy(&this->cooperative_matrix, &desc, sizeof(desc));
+
+   const glsl_type *element_type = get_instance(desc.element_type, 1, 1);
+
+   this->mem_ctx = ralloc_context(NULL);
+   assert(this->mem_ctx != NULL);
+
+   this->name = ralloc_asprintf(this->mem_ctx,
+                                "coopmat<%s, %s, %u, %u, %s>",
+                                element_type->name,
+                                mesa_scope_name((mesa_scope)desc.scope), desc.rows, desc.cols,
+                                glsl_cooperative_matrix_use_to_string((enum glsl_cooperative_matrix_use)desc.use));
 }
 
 const glsl_type *
@@ -795,6 +834,26 @@ glsl_type::get_instance(unsigned base_type, unsigned rows, unsigned columns,
    assert(!"Should not get here.");
    return error_type;
 }
+
+namespace {
+   template<class T>
+   void clear_bytes(T &data) {
+      /* Zero all bytes in T, including any internal padding.  This is needed to
+       * ensure the hash_bytes() and compare_bytes() below work correctly.
+       */
+      memset(&data, 0, sizeof(T));
+   }
+
+   template<class T>
+   uint32_t hash_bytes(const void *input) {
+      return _mesa_hash_data(input, sizeof(T));
+   }
+
+   template<class T>
+   bool compare_bytes(const void *a, const void *b) {
+      return memcmp(a, b, sizeof(T)) == 0;
+   }
+} // namespace
 
 const glsl_type *
 glsl_type::get_sampler_instance(enum glsl_sampler_dim dim,
@@ -1238,6 +1297,49 @@ glsl_type::get_array_instance(const glsl_type *element,
    assert(t->base_type == GLSL_TYPE_ARRAY);
    assert(t->length == array_size);
    assert(t->fields.array == element);
+
+   return t;
+}
+
+const glsl_type *
+glsl_type::get_cooperative_matrix_instance(const glsl_cooperative_matrix_description &desc)
+{
+   glsl_cooperative_matrix_description key;
+   clear_bytes(key);
+   key.element_type = desc.element_type;
+   key.scope        = desc.scope;
+   key.rows         = desc.rows;
+   key.cols         = desc.cols;
+   key.use          = desc.use;
+
+   const uint32_t key_hash = hash_bytes<glsl_cooperative_matrix_description>(&key);
+
+   simple_mtx_lock(&glsl_type::hash_mutex);
+   assert(glsl_type_users > 0);
+
+   if (cooperative_matrix_types == NULL) {
+      cooperative_matrix_types =
+         _mesa_hash_table_create(NULL,
+                                 hash_bytes<glsl_cooperative_matrix_description>,
+                                 compare_bytes<glsl_cooperative_matrix_description>);
+   }
+
+   const struct hash_entry *entry = _mesa_hash_table_search_pre_hashed(cooperative_matrix_types, key_hash, &key);
+   if (entry == NULL) {
+      const glsl_type *t = new glsl_type(key);
+      const glsl_cooperative_matrix_description *stored_key = &t->cooperative_matrix;
+
+      entry = _mesa_hash_table_insert_pre_hashed(cooperative_matrix_types, key_hash,
+                                                 stored_key, (void *) t);
+   }
+
+   auto t = (const glsl_type *)entry->data;
+   simple_mtx_unlock(&glsl_type::hash_mutex);
+
+   assert(memcmp(&t->cooperative_matrix, &key, sizeof(key)) == 0);
+   assert(t->base_type == GLSL_TYPE_COOPERATIVE_MATRIX);
+   assert(t->cooperative_matrix.use == desc.use);
+   assert(t->cooperative_matrix.scope == desc.scope);
 
    return t;
 }
@@ -1719,6 +1821,7 @@ glsl_type::component_slots() const
    case GLSL_TYPE_SUBROUTINE:
       return 1;
 
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
    case GLSL_TYPE_FUNCTION:
    case GLSL_TYPE_ATOMIC_UINT:
    case GLSL_TYPE_VOID:
@@ -1786,6 +1889,7 @@ glsl_type::component_slots_aligned(unsigned offset) const
    case GLSL_TYPE_SUBROUTINE:
       return 1;
 
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
    case GLSL_TYPE_FUNCTION:
    case GLSL_TYPE_ATOMIC_UINT:
    case GLSL_TYPE_VOID:
@@ -2641,6 +2745,10 @@ glsl_type::get_explicit_type_for_size_align(glsl_type_size_align_func type_info,
       type_info(this, size, alignment);
       assert(*alignment > 0);
       return this;
+   } else if (this->is_cooperative_matrix()) {
+      *size = 0;
+      *alignment = 0;
+      return this;
    } else if (this->is_scalar()) {
       type_info(this, size, alignment);
       assert(*size == explicit_type_scalar_byte_size(this));
@@ -2864,6 +2972,7 @@ glsl_type::count_vec4_slots(bool is_gl_vertex_input, bool is_bindless) const
    case GLSL_TYPE_SUBROUTINE:
       return 1;
 
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
    case GLSL_TYPE_FUNCTION:
    case GLSL_TYPE_ATOMIC_UINT:
    case GLSL_TYPE_VOID:
@@ -2983,6 +3092,7 @@ union packed_type {
       unsigned length:13;
       unsigned explicit_stride:14;
    } array;
+   glsl_cooperative_matrix_description cooperative_matrix;
    struct {
       unsigned base_type:5;
       unsigned interface_packing_or_packed:2;
@@ -3097,6 +3207,10 @@ encode_type_to_blob(struct blob *blob, const glsl_type *type)
          blob_write_uint32(blob, type->explicit_stride);
       encode_type_to_blob(blob, type->fields.array);
       return;
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
+      encoded.cooperative_matrix = type->cooperative_matrix;
+      blob_write_uint32(blob, encoded.u32);
+      return;
    case GLSL_TYPE_STRUCT:
    case GLSL_TYPE_INTERFACE:
       encoded.strct.length = MIN2(type->length, 0xfffff);
@@ -3202,6 +3316,9 @@ decode_type_from_blob(struct blob_reader *blob)
          explicit_stride = blob_read_uint32(blob);
       return glsl_type::get_array_instance(decode_type_from_blob(blob),
                                            length, explicit_stride);
+   }
+   case GLSL_TYPE_COOPERATIVE_MATRIX: {
+      return glsl_type::get_cooperative_matrix_instance(encoded.cooperative_matrix);
    }
    case GLSL_TYPE_STRUCT:
    case GLSL_TYPE_INTERFACE: {

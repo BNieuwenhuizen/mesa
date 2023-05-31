@@ -342,6 +342,12 @@ glsl_type_is_array_or_matrix(const struct glsl_type *type)
 }
 
 bool
+glsl_type_is_cooperative_matrix(const struct glsl_type *type)
+{
+   return type->is_cooperative_matrix();
+}
+
+bool
 glsl_type_is_struct(const struct glsl_type *type)
 {
    return type->is_struct();
@@ -649,6 +655,12 @@ glsl_array_type(const glsl_type *element, unsigned array_size,
 }
 
 const glsl_type *
+glsl_cooperative_matrix_type(const glsl_cooperative_matrix_description *desc)
+{
+   return glsl_type::get_cooperative_matrix_instance(*desc);
+}
+
+const glsl_type *
 glsl_replace_vector_type(const glsl_type *t, unsigned components)
 {
    if (glsl_type_is_array(t)) {
@@ -870,6 +882,7 @@ glsl_get_natural_size_align_bytes(const struct glsl_type *type,
 
    case GLSL_TYPE_ATOMIC_UINT:
    case GLSL_TYPE_SUBROUTINE:
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
    case GLSL_TYPE_VOID:
    case GLSL_TYPE_ERROR:
    case GLSL_TYPE_FUNCTION:
@@ -924,6 +937,7 @@ glsl_get_vec4_size_align_bytes(const struct glsl_type *type,
    case GLSL_TYPE_IMAGE:
    case GLSL_TYPE_ATOMIC_UINT:
    case GLSL_TYPE_SUBROUTINE:
+   case GLSL_TYPE_COOPERATIVE_MATRIX:
    case GLSL_TYPE_VOID:
    case GLSL_TYPE_ERROR:
    case GLSL_TYPE_FUNCTION:
@@ -1116,4 +1130,18 @@ const struct glsl_type *
 glsl_type_replace_vec3_with_vec4(const struct glsl_type *type)
 {
    return type->replace_vec3_with_vec4();
+}
+
+const struct glsl_type *
+glsl_get_cooperative_matrix_element(const struct glsl_type *type)
+{
+   assert(type->base_type == GLSL_TYPE_COOPERATIVE_MATRIX);
+   return glsl_type::get_instance(type->cooperative_matrix.element_type, 1, 1);
+}
+
+const struct glsl_cooperative_matrix_description *
+glsl_get_cooperative_matrix_description(const struct glsl_type *type)
+{
+   assert(type->base_type == GLSL_TYPE_COOPERATIVE_MATRIX);
+   return &type->cooperative_matrix;
 }

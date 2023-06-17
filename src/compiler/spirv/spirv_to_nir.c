@@ -301,7 +301,12 @@ vtn_const_ssa_value(struct vtn_builder *b, nir_constant *constant,
    struct vtn_ssa_value *val = rzalloc(b, struct vtn_ssa_value);
    val->type = glsl_get_bare_type(type);
 
-   if (glsl_type_is_vector_or_scalar(type)) {
+   if (glsl_type_is_cooperative_matrix(type)) {
+      const struct glsl_type *element_type = glsl_get_cooperative_matrix_element(type);
+      const struct glsl_cooperative_matrix_description *desc = glsl_get_cooperative_matrix_description(type);
+      val->def = nir_coop_construct(&b->nb, nir_build_imm(&b->nb, 1, glsl_get_bit_size(element_type),
+                                                          constant->values), .matrix_desc = *desc);
+   } else if (glsl_type_is_vector_or_scalar(type)) {
       unsigned num_components = glsl_get_vector_elements(val->type);
       unsigned bit_size = glsl_get_bit_size(type);
       nir_load_const_instr *load =
@@ -850,6 +855,7 @@ vtn_types_compatible(struct vtn_builder *b,
    case vtn_base_type_sampler:
    case vtn_base_type_sampled_image:
    case vtn_base_type_event:
+   case vtn_base_type_cooperative_matrix:
       return t1->type == t2->type;
 
    case vtn_base_type_array:
@@ -912,6 +918,7 @@ vtn_type_copy(struct vtn_builder *b, struct vtn_type *src)
    case vtn_base_type_event:
    case vtn_base_type_accel_struct:
    case vtn_base_type_ray_query:
+   case vtn_base_type_cooperative_matrix:
       /* Nothing more to do */
       break;
 
@@ -1942,6 +1949,10 @@ vtn_handle_type(struct vtn_builder *b, SpvOp opcode,
       break;
    }
 
+   case SpvOpTypeCooperativeMatrixKHR:
+      vtn_handle_cooperative_type(b, val, opcode, w, count);
+      break;
+
    case SpvOpTypeEvent:
       val->type->base_type = vtn_base_type_event;
       val->type->type = glsl_int_type();
@@ -2122,9 +2133,11 @@ vtn_handle_constant(struct vtn_builder *b, SpvOp opcode,
    case SpvOpSpecConstantComposite:
    case SpvOpConstantComposite: {
       unsigned elem_count = count - 3;
-      vtn_fail_if(elem_count != val->type->length,
+      unsigned expected_length = val->type->base_type == vtn_base_type_cooperative_matrix ?
+         1 : val->type->length;
+      vtn_fail_if(elem_count != expected_length,
                   "%s has %u constituents, expected %u",
-                  spirv_op_to_string(opcode), elem_count, val->type->length);
+                  spirv_op_to_string(opcode), elem_count, expected_length);
 
       nir_constant **elems = ralloc_array(b, nir_constant *, elem_count);
       val->is_undef_constant = true;
@@ -2158,6 +2171,10 @@ vtn_handle_constant(struct vtn_builder *b, SpvOp opcode,
          ralloc_steal(val->constant, elems);
          val->constant->num_elements = elem_count;
          val->constant->elements = elems;
+         break;
+
+      case vtn_base_type_cooperative_matrix:
+         val->constant->values[0] = elems[0]->values[0];
          break;
 
       default:
@@ -2672,7 +2689,7 @@ vtn_create_ssa_value(struct vtn_builder *b, const struct glsl_type *type)
    if (!glsl_type_is_vector_or_scalar(type)) {
       unsigned elems = glsl_get_length(val->type);
       val->elems = ralloc_array(b, struct vtn_ssa_value *, elems);
-      if (glsl_type_is_array_or_matrix(type)) {
+      if (glsl_type_is_array_or_matrix(type) || glsl_type_is_cooperative_matrix(type)) {
          const struct glsl_type *elem_type = glsl_get_array_element(type);
          for (unsigned i = 0; i < elems; i++)
             val->elems[i] = vtn_create_ssa_value(b, elem_type);
@@ -4192,6 +4209,9 @@ vtn_composite_insert(struct vtn_builder *b, struct vtn_ssa_value *src,
                      struct vtn_ssa_value *insert, const uint32_t *indices,
                      unsigned num_indices)
 {
+   if (glsl_type_is_cooperative_matrix(src->type))
+      return vtn_cooperative_matrix_insert(b, src, insert, indices, num_indices);
+
    struct vtn_ssa_value *dest = vtn_composite_copy(b, src);
 
    struct vtn_ssa_value *cur = dest;
@@ -4230,7 +4250,11 @@ static struct vtn_ssa_value *
 vtn_composite_extract(struct vtn_builder *b, struct vtn_ssa_value *src,
                       const uint32_t *indices, unsigned num_indices)
 {
+   if (glsl_type_is_cooperative_matrix(src->type))
+      return vtn_cooperative_matrix_extract(b, src, indices, num_indices);
+
    struct vtn_ssa_value *cur = src;
+
    for (unsigned i = 0; i < num_indices; i++) {
       if (glsl_type_is_vector_or_scalar(cur->type)) {
          vtn_assert(i == num_indices - 1);
@@ -4286,7 +4310,11 @@ vtn_handle_composite(struct vtn_builder *b, SpvOp opcode,
    case SpvOpCompositeConstruct: {
       unsigned elems = count - 3;
       assume(elems >= 1);
-      if (glsl_type_is_vector_or_scalar(type->type)) {
+      if (type->base_type == vtn_base_type_cooperative_matrix) {
+         vtn_assert(elems == 1);
+         const struct glsl_cooperative_matrix_description *desc = glsl_get_cooperative_matrix_description(type->type);
+         ssa->def = nir_coop_construct(&b->nb, vtn_get_nir_ssa(b, w[3]), .matrix_desc = *desc);
+      } else if (glsl_type_is_vector_or_scalar(type->type)) {
          nir_def *srcs[NIR_MAX_VEC_COMPONENTS];
          for (unsigned i = 0; i < elems; i++) {
             srcs[i] = vtn_get_nir_ssa(b, w[3 + i]);
@@ -4993,6 +5021,10 @@ vtn_handle_preamble_instruction(struct vtn_builder *b, SpvOp opcode,
          spv_check_supported(fragment_barycentric, cap);
          break;
 
+      case SpvCapabilityCooperativeMatrixKHR:
+         spv_check_supported(cooperative_matrix, cap);
+         break;
+
       default:
          vtn_fail("Unhandled capability: %s (%u)",
                   spirv_capability_to_string(cap), cap);
@@ -5593,6 +5625,7 @@ vtn_handle_variable_or_type_instruction(struct vtn_builder *b, SpvOp opcode,
    case SpvOpTypePipe:
    case SpvOpTypeAccelerationStructureKHR:
    case SpvOpTypeRayQueryKHR:
+   case SpvOpTypeCooperativeMatrixKHR:
       vtn_handle_type(b, opcode, w, count);
       break;
 
@@ -6504,6 +6537,13 @@ vtn_handle_body_instruction(struct vtn_builder *b, SpvOp opcode,
    case SpvOpSetMeshOutputsEXT:
       nir_set_vertex_and_primitive_count(
          &b->nb, vtn_get_nir_ssa(b, w[1]), vtn_get_nir_ssa(b, w[2]));
+      break;
+
+   case SpvOpCooperativeMatrixLoadKHR:
+   case SpvOpCooperativeMatrixStoreKHR:
+   case SpvOpCooperativeMatrixLengthKHR:
+   case SpvOpCooperativeMatrixMulAddKHR:
+      vtn_handle_cooperative_instruction(b, opcode, w, count);
       break;
 
    default:

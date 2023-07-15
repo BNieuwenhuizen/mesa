@@ -7,3 +7,4 @@ New features
 ------------
 VK_EXT_pipeline_robustness on ANV
 VK_KHR_maintenance5 on RADV
+VK_KHR_cooperative_matrix on RADV/GFX11+

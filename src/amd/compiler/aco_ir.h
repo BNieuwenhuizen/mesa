@@ -1818,6 +1818,17 @@ is_phi(aco_ptr<Instruction>& instr)
    return is_phi(instr.get());
 }
 
+static inline bool
+is_wmma(aco_ptr<Instruction>& instr)
+{
+   return instr->opcode == aco_opcode::v_wmma_bf16_16x16x16_bf16 ||
+          instr->opcode == aco_opcode::v_wmma_f16_16x16x16_f16 ||
+          instr->opcode == aco_opcode::v_wmma_f32_16x16x16_f16 ||
+          instr->opcode == aco_opcode::v_wmma_f32_16x16x16_bf16 ||
+          instr->opcode == aco_opcode::v_wmma_i32_16x16x16_iu8 ||
+          instr->opcode == aco_opcode::v_wmma_i32_16x16x16_iu4;
+}
+
 memory_sync_info get_sync_info(const Instruction* instr);
 
 inline bool

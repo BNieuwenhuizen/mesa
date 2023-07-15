@@ -254,7 +254,7 @@ validate_ir(Program* program)
                   check(!vop3p.opsel_lo[i] && !vop3p.opsel_hi[i],
                         "Unexpected opsel for subdword operand", instr.get());
             }
-            check(instr->definitions[0].regClass() == v1, "VOP3P must have v1 definition",
+            check(instr->definitions[0].regClass() == v1 || is_wmma(instr), "VOP3P must have v1 definition",
                   instr.get());
          }
 

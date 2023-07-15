@@ -618,6 +618,8 @@ visit_intrinsic(nir_shader *shader, nir_intrinsic_instr *instr)
    case nir_intrinsic_coop_bitcast:
    case nir_intrinsic_coop_extract:
    case nir_intrinsic_coop_insert:
+   case nir_intrinsic_coop_muladd_amd:
+
       is_divergent = true;
       break;
 

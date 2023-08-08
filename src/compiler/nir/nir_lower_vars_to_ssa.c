@@ -743,8 +743,10 @@ nir_lower_vars_to_ssa_impl(nir_function_impl *impl)
          continue;
       }
 
-      node->lower_to_ssa = true;
-      progress = true;
+      if (!glsl_type_is_cooperative_matrix(node->type)) {
+         node->lower_to_ssa = true;
+         progress = true;
+      }
 
       foreach_deref_node_match(path, lower_copies_to_load_store, &state);
    }

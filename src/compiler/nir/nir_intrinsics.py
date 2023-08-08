@@ -312,6 +312,13 @@ index("bool", "legacy_fneg")
 # On a register store, floating-point saturate the stored value.
 index("bool", "legacy_fsat")
 
+# For Cooperative Matrix intrinsics.
+index("struct glsl_cooperative_matrix_description", "matrix_desc")
+index("enum glsl_matrix_layout", "matrix_layout")
+index("unsigned", "stride")
+index("nir_cooperative_matrix_signed", "matrix_signed_mask")
+index("nir_op", "alu_op")
+
 intrinsic("nop", flags=[CAN_ELIMINATE])
 
 intrinsic("convert_alu_types", dest_comp=0, src_comp=[0],
@@ -1193,6 +1200,28 @@ system_value("flat_mask", 1)
 
 # Whether provoking vertex mode is last
 system_value("provoking_last", 1)
+
+# SPV_KHR_cooperative_matrix.
+#
+# Load/Store include an extra source for stride, since that
+# can be a _dynamically_ uniform value.
+#
+# The sources and destinations are SSA values that can't store the
+# matrix type.  To keep track of the ones returned by the intrinsics,
+# we use a matrix_desc index.  The matrix types of the sources can be
+# inferred by the navigating the SSA values back to a cooperative
+# intrinsic or load variable operation.
+intrinsic("coop_construct", src_comp=[1], dest_comp=1, indices=[MATRIX_DESC], bit_sizes=[32])
+intrinsic("coop_load", src_comp=[-1, 1], dest_comp=1, indices=[MATRIX_DESC, MATRIX_LAYOUT], bit_sizes=[32])
+intrinsic("coop_store", src_comp=[-1, 1, 1], indices=[MATRIX_DESC, MATRIX_LAYOUT], bit_sizes=[32])
+intrinsic("coop_length", src_comp=[], dest_comp=1, indices=[MATRIX_DESC], bit_sizes=[32])
+intrinsic("coop_muladd", src_comp=[1, 1, 1], dest_comp=1, indices=[MATRIX_DESC, SATURATE, MATRIX_SIGNED_MASK], bit_sizes=[32])
+intrinsic("coop_unary_op", src_comp=[1], dest_comp=1, indices=[MATRIX_DESC, ALU_OP], bit_sizes=[32])
+intrinsic("coop_binary_op", src_comp=[1, 1], dest_comp=1, indices=[MATRIX_DESC, ALU_OP], bit_sizes=[32])
+intrinsic("coop_scalar_op", src_comp=[1, 1], dest_comp=1, indices=[MATRIX_DESC, ALU_OP], bit_sizes=[32])
+intrinsic("coop_bitcast", src_comp=[1], dest_comp=1, indices=[MATRIX_DESC], bit_sizes=[32])
+intrinsic("coop_extract", src_comp=[1, 1], dest_comp=1)
+intrinsic("coop_insert", src_comp=[1, 1, 1], dest_comp=1, indices=[MATRIX_DESC], bit_sizes=[32])
 
 # IR3-specific version of most SSBO intrinsics. The only different
 # compare to the originals is that they add an extra source to hold

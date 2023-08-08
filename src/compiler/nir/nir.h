@@ -268,6 +268,17 @@ typedef enum {
    nir_resource_intel_non_uniform = 1u << 3,
 } nir_resource_data_intel;
 
+/**
+ * Which components to interpret as signed in coop_muladd.
+ * See 'Cooperative Matrix Operands' in SPV_KHR_cooperative_matrix.
+ */
+typedef enum {
+   NIR_COOPERATIVE_MATRIX_A_SIGNED = 1u << 0,
+   NIR_COOPERATIVE_MATRIX_B_SIGNED = 1u << 1,
+   NIR_COOPERATIVE_MATRIX_C_SIGNED = 1u << 2,
+   NIR_COOPERATIVE_MATRIX_RESULT_SIGNED = 1u << 3,
+} nir_cooperative_matrix_signed;
+
 typedef union {
    bool b;
    float f32;

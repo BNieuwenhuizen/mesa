@@ -3377,3 +3377,39 @@ nir_remove_non_entrypoints(nir_shader *nir)
    }
    assert(exec_list_length(&nir->functions) == 1);
 }
+
+const struct glsl_type *
+nir_coop_type_for_instr(nir_instr *instr)
+{
+   const struct glsl_type *coop_type = NULL;
+
+   switch (instr->type) {
+   case nir_instr_type_deref: {
+      nir_deref_instr *deref = nir_instr_as_deref(instr);
+      if (glsl_type_is_cooperative_matrix(deref->type))
+         coop_type = deref->type;
+      break;
+   }
+
+   case nir_instr_type_intrinsic: {
+      nir_intrinsic_instr *intrin = nir_instr_as_intrinsic(instr);
+      if (intrin->intrinsic == nir_intrinsic_load_deref) {
+         nir_deref_instr *deref = nir_src_as_deref(intrin->src[0]);
+         if (glsl_type_is_cooperative_matrix(deref->type))
+            coop_type = deref->type;
+      } else if (intrin->intrinsic == nir_intrinsic_coop_length) {
+         /* Nothing to do, the result value is a scalar. */
+      } else if (nir_intrinsic_has_matrix_desc(intrin)) {
+         struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intrin);
+         coop_type = glsl_cooperative_matrix_type(&desc);
+      }
+      break;
+   }
+
+   default:
+      /* Nothing to do. Instruction can't produce a cooperative matrix type. */
+      break;
+   }
+
+   return coop_type;
+}

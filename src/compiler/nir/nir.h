@@ -6240,6 +6240,8 @@ nir_store_reg_for_def(const nir_def *def)
    return intr;
 }
 
+const struct glsl_type *nir_coop_type_for_instr(nir_instr *instr);
+
 #include "nir_inline_helpers.h"
 
 #ifdef __cplusplus

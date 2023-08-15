@@ -260,7 +260,8 @@ vtn_cooperative_matrix_extract(struct vtn_builder *b, struct vtn_ssa_value *mat,
 
    const struct glsl_type *element_type = glsl_get_cooperative_matrix_element(mat->type);
    struct vtn_ssa_value *ret = vtn_create_ssa_value(b, element_type);
-   ret->def = nir_coop_extract(&b->nb, glsl_get_bit_size(element_type), mat->def, index);
+   ret->def = nir_coop_extract(&b->nb, glsl_get_bit_size(element_type), mat->def, index,
+                               .matrix_desc = *glsl_get_cooperative_matrix_description(mat->type));
    return ret;
 }
 

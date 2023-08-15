@@ -576,9 +576,13 @@ vtn_local_load(struct vtn_builder *b, nir_deref_instr *src,
       val->type = src->type;
 
       if (glsl_type_is_cooperative_matrix(src_tail->type)) {
+         const struct glsl_cooperative_matrix_description desc =
+            *glsl_get_cooperative_matrix_description(src_tail->type);
+
          val->def = nir_coop_extract(&b->nb,
                                      glsl_get_bit_size(src->type),
-                                     val->def, src->arr.index.ssa);
+                                     val->def, src->arr.index.ssa,
+                                     .matrix_desc = desc);
       } else {
          val->def = nir_vector_extract(&b->nb, val->def, src->arr.index.ssa);
       }

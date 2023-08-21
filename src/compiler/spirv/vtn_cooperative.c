@@ -135,11 +135,12 @@ vtn_handle_cooperative_instruction(struct vtn_builder *b, SpvOp opcode,
       nir_def *mat_b = vtn_get_nir_ssa(b, w[4]);
       nir_def *mat_c = vtn_get_nir_ssa(b, w[5]);
 
-      const bool saturate = w[6] & SpvCooperativeMatrixOperandsSaturatingAccumulationKHRMask;
-      const unsigned signed_mask = w[6] & (SpvCooperativeMatrixOperandsMatrixASignedComponentsKHRMask |
-                                           SpvCooperativeMatrixOperandsMatrixBSignedComponentsKHRMask |
-                                           SpvCooperativeMatrixOperandsMatrixCSignedComponentsKHRMask |
-                                           SpvCooperativeMatrixOperandsMatrixResultSignedComponentsKHRMask);
+      const unsigned operands = count > 6 ? w[6] : 0;
+      const bool saturate = operands & SpvCooperativeMatrixOperandsSaturatingAccumulationKHRMask;
+      const unsigned signed_mask = operands & (SpvCooperativeMatrixOperandsMatrixASignedComponentsKHRMask |
+                                               SpvCooperativeMatrixOperandsMatrixBSignedComponentsKHRMask |
+                                               SpvCooperativeMatrixOperandsMatrixCSignedComponentsKHRMask |
+                                               SpvCooperativeMatrixOperandsMatrixResultSignedComponentsKHRMask);
 
       STATIC_ASSERT((unsigned)SpvCooperativeMatrixOperandsMatrixASignedComponentsKHRMask == NIR_COOPERATIVE_MATRIX_A_SIGNED);
       STATIC_ASSERT((unsigned)SpvCooperativeMatrixOperandsMatrixBSignedComponentsKHRMask == NIR_COOPERATIVE_MATRIX_B_SIGNED);

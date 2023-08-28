@@ -1223,6 +1223,18 @@ intrinsic("coop_bitcast", src_comp=[1], dest_comp=1, indices=[MATRIX_DESC], bit_
 intrinsic("coop_extract", src_comp=[1, 1], dest_comp=1,indices=[MATRIX_DESC])
 intrinsic("coop_insert", src_comp=[1, 1, 1], dest_comp=1, indices=[MATRIX_DESC], bit_sizes=[32])
 
+intrinsic("cmat_construct", src_comp=[-1, 1])
+intrinsic("cmat_load", src_comp=[-1, -1, 1], indices=[MATRIX_LAYOUT])
+intrinsic("cmat_store", src_comp=[-1, 1, -1], indices=[MATRIX_LAYOUT])
+intrinsic("cmat_length", src_comp=[], dest_comp=1, indices=[MATRIX_DESC], bit_sizes=[32])
+intrinsic("cmat_muladd", src_comp=[-1, -1, -1, -1], indices=[SATURATE, MATRIX_SIGNED_MASK])
+intrinsic("cmat_unary_op", src_comp=[-1, -1], indices=[ALU_OP])
+intrinsic("cmat_binary_op", src_comp=[-1, -1, -1], indices=[ALU_OP])
+intrinsic("cmat_scalar_op", src_comp=[-1, -1, 1], indices=[ALU_OP])
+intrinsic("cmat_bitcast", src_comp=[-1, -1])
+intrinsic("cmat_extract", src_comp=[-1, 1], dest_comp=1)
+intrinsic("cmat_insert", src_comp=[-1, -1, 1, 1])
+
 # IR3-specific version of most SSBO intrinsics. The only different
 # compare to the originals is that they add an extra source to hold
 # the dword-offset, which is needed by the backend code apart from

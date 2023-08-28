@@ -428,8 +428,12 @@ vtn_handle_phis_first_pass(struct vtn_builder *b, SpvOp opcode,
 
    _mesa_hash_table_insert(b->phi_table, w, phi_var);
 
+   if (type->base_type == vtn_base_type_cooperative_matrix) {
+      vtn_push_variable_value(b, w[2], phi_var);
+   } else {
    vtn_push_ssa_value(b, w[2],
       vtn_local_load(b, nir_build_deref_var(&b->nb, phi_var), 0));
+   }
 
    return true;
 }
@@ -451,6 +455,8 @@ vtn_handle_phi_second_pass(struct vtn_builder *b, SpvOp opcode,
       return true;
 
    nir_variable *phi_var = phi_entry->data;
+   struct vtn_type *type = vtn_get_type(b, w[1]);
+   bool copy = glsl_type_is_cooperative_matrix(type->type);
 
    for (unsigned i = 3; i < count; i += 2) {
       struct vtn_block *pred = vtn_block(b, w[i + 1]);
@@ -464,7 +470,11 @@ vtn_handle_phi_second_pass(struct vtn_builder *b, SpvOp opcode,
 
       struct vtn_ssa_value *src = vtn_ssa_value(b, w[i]);
 
-      vtn_local_store(b, src, nir_build_deref_var(&b->nb, phi_var), 0);
+      if (copy) {
+         nir_build_copy_deref(&b->nb, &nir_build_deref_var(&b->nb, phi_var)->def,  src->def, 0, 0);
+      } else {
+         vtn_local_store(b, src, nir_build_deref_var(&b->nb, phi_var), 0);
+      }
    }
 
    return true;

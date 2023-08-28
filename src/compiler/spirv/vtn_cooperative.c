@@ -8,6 +8,7 @@
 #include "nir_types.h"
 #include "vtn_private.h"
 
+
 static enum glsl_cooperative_matrix_use
 vtn_cooperative_matrix_use_to_glsl(SpvCooperativeMatrixUse use)
 {
@@ -79,7 +80,6 @@ vtn_handle_cooperative_instruction(struct vtn_builder *b, SpvOp opcode,
    case SpvOpCooperativeMatrixLoadKHR: {
       struct vtn_value *src_val = vtn_value(b, w[3], vtn_value_type_pointer);
       struct vtn_pointer *src = vtn_value_to_pointer(b, src_val);
-      struct vtn_type *dst_type = vtn_get_type(b, w[1]);
 
       const SpvCooperativeMatrixLayout layout = vtn_constant_uint(b, w[4]);
       nir_def *stride = count > 5 ? vtn_get_nir_ssa(b, w[5]) : nir_imm_zero(&b->nb, 1, 32);
@@ -92,10 +92,9 @@ vtn_handle_cooperative_instruction(struct vtn_builder *b, SpvOp opcode,
          vtn_emit_make_visible_barrier(b, access, scope, src->mode);
       }
 
-      nir_def *def = nir_coop_load(&b->nb, vtn_pointer_to_ssa(b, src), stride,
-                                   .matrix_desc = dst_type->desc,
+      struct vtn_value *dst_val = vtn_push_variable_value(b, w[2], NULL);
+      nir_cmat_load(&b->nb, dst_val->ssa->def, vtn_pointer_to_ssa(b, src), stride,
                                    .matrix_layout = vtn_matrix_layout_to_glsl(layout));
-      vtn_push_nir_ssa(b, w[2], def);
       break;
    }
 
@@ -117,15 +116,14 @@ vtn_handle_cooperative_instruction(struct vtn_builder *b, SpvOp opcode,
       struct vtn_ssa_value *src = vtn_ssa_value(b, w[2]);
       vtn_assert(glsl_type_is_cooperative_matrix(src->type));
 
-      nir_coop_store(&b->nb, vtn_pointer_to_ssa(b, dest), src->def, stride,
-                     .matrix_desc = *glsl_get_cooperative_matrix_description(src->type),
+      nir_cmat_store(&b->nb, vtn_pointer_to_ssa(b, dest), src->def, stride,
                      .matrix_layout = vtn_matrix_layout_to_glsl(layout));
       break;
    }
 
    case SpvOpCooperativeMatrixLengthKHR: {
       struct vtn_type *type = vtn_get_type(b, w[3]);
-      nir_def *def = nir_coop_length(&b->nb, .matrix_desc = type->desc);
+      nir_def *def = nir_cmat_length(&b->nb, .matrix_desc = type->desc);
       vtn_push_nir_ssa(b, w[2], def);
       break;
    }
@@ -147,10 +145,9 @@ vtn_handle_cooperative_instruction(struct vtn_builder *b, SpvOp opcode,
       STATIC_ASSERT((unsigned)SpvCooperativeMatrixOperandsMatrixCSignedComponentsKHRMask == NIR_COOPERATIVE_MATRIX_C_SIGNED);
       STATIC_ASSERT((unsigned)SpvCooperativeMatrixOperandsMatrixResultSignedComponentsKHRMask == NIR_COOPERATIVE_MATRIX_RESULT_SIGNED);
 
-      nir_def *def = nir_coop_muladd(&b->nb, mat_a, mat_b, mat_c,
-                                     .matrix_desc = vtn_get_type(b, w[1])->desc,
+      struct vtn_value *val = vtn_push_variable_value(b, w[2], NULL);
+      nir_cmat_muladd(&b->nb, val->ssa->def, mat_a, mat_b, mat_c,
                                      .saturate = saturate, .matrix_signed_mask = signed_mask);
-      vtn_push_nir_ssa(b, w[2], def);
       break;
    }
 
@@ -158,9 +155,9 @@ vtn_handle_cooperative_instruction(struct vtn_builder *b, SpvOp opcode,
       struct vtn_type *type = vtn_get_type(b, w[1]);
       vtn_assert(type->base_type == vtn_base_type_cooperative_matrix);
       nir_def *src = vtn_get_nir_ssa(b, w[3]);
-      nir_def *def = nir_coop_bitcast(&b->nb, src,
-                                      .matrix_desc = type->desc);
-      vtn_push_nir_ssa(b, w[2], def);
+
+      struct vtn_value *dst_val = vtn_push_variable_value(b, w[2], NULL);
+      nir_cmat_bitcast(&b->nb, dst_val->ssa->def, src);
       break;
    }
 
@@ -199,10 +196,9 @@ vtn_handle_cooperative_alu(struct vtn_builder *b, struct vtn_value *dest_val,
          nir_op op = vtn_nir_alu_op_for_spirv_opcode(b, opcode, &ignored, &ignored,
                                                      src_bit_size, dst_bit_size);
 
-         nir_def *def = nir_coop_unary_op(&b->nb, src_val->def,
-                                          .matrix_desc = dst_type->desc,
+         struct vtn_value *dst_val = vtn_push_variable_value(b, w[2], NULL);
+         nir_cmat_unary_op(&b->nb, dst_val->ssa->def, src_val->def,
                                           .alu_op = op);
-         vtn_push_nir_ssa(b, w[2], def);
          break;
       }
 
@@ -218,29 +214,25 @@ vtn_handle_cooperative_alu(struct vtn_builder *b, struct vtn_value *dest_val,
          bool ignored = false;
          nir_op op = vtn_nir_alu_op_for_spirv_opcode(b, opcode, &ignored, &ignored, 0, 0);
 
-         struct vtn_type *dst_type = vtn_get_type(b, w[1]);
          nir_def *mat_a = vtn_get_nir_ssa(b, w[3]);
          nir_def *mat_b = vtn_get_nir_ssa(b, w[4]);
 
-         nir_def *def = nir_coop_binary_op(&b->nb, mat_a, mat_b,
-                                           .matrix_desc = dst_type->desc,
+         struct vtn_value *dst_val = vtn_push_variable_value(b, w[2], NULL);
+         nir_cmat_binary_op(&b->nb, dst_val->ssa->def, mat_a, mat_b,
                                            .alu_op = op);
-         vtn_push_nir_ssa(b, w[2], def);
          break;
       }
 
       case SpvOpMatrixTimesScalar: {
-         struct vtn_type *dst_type = vtn_get_type(b, w[1]);
          nir_def *mat = vtn_get_nir_ssa(b, w[3]);
 
          struct vtn_ssa_value *scalar_val = vtn_ssa_value(b, w[4]);
          vtn_assert(glsl_type_is_scalar(scalar_val->type));
          nir_op op = glsl_type_is_integer(scalar_val->type) ? nir_op_imul : nir_op_fmul;
 
-         nir_def *def = nir_coop_scalar_op(&b->nb, mat, scalar_val->def,
-                                           .matrix_desc = dst_type->desc,
+         struct vtn_value *dst_val = vtn_push_variable_value(b, w[2], NULL);
+         nir_cmat_scalar_op(&b->nb, dst_val->ssa->def, mat, scalar_val->def,
                                            .alu_op = op);
-         vtn_push_nir_ssa(b, w[2], def);
          break;
       }
 
@@ -260,8 +252,7 @@ vtn_cooperative_matrix_extract(struct vtn_builder *b, struct vtn_ssa_value *mat,
 
    const struct glsl_type *element_type = glsl_get_cooperative_matrix_element(mat->type);
    struct vtn_ssa_value *ret = vtn_create_ssa_value(b, element_type);
-   ret->def = nir_coop_extract(&b->nb, glsl_get_bit_size(element_type), mat->def, index,
-                               .matrix_desc = *glsl_get_cooperative_matrix_description(mat->type));
+   ret->def = nir_cmat_extract(&b->nb, glsl_get_bit_size(element_type), mat->def, index);
    return ret;
 }
 
@@ -276,7 +267,9 @@ vtn_cooperative_matrix_insert(struct vtn_builder *b, struct vtn_ssa_value *mat,
    nir_def *index = nir_imm_intN_t(&b->nb, indices[0], 32);
 
    struct vtn_ssa_value *ret = vtn_create_ssa_value(b, mat->type);
-   ret->def = nir_coop_insert(&b->nb, insert->def, mat->def, index,
-                              .matrix_desc = *glsl_get_cooperative_matrix_description(ret->type));
+   nir_variable *var = nir_local_variable_create(b->nb.impl, mat->type, "cmat_insert");
+   ret->def = &nir_build_deref_var(&b->nb, var)->def;
+
+   nir_cmat_insert(&b->nb, ret->def, mat->def, index, insert->def);
    return ret;
 }

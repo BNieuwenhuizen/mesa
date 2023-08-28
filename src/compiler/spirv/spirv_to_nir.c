@@ -266,7 +266,10 @@ vtn_undef_ssa_value(struct vtn_builder *b, const struct glsl_type *type)
    struct vtn_ssa_value *val = rzalloc(b, struct vtn_ssa_value);
    val->type = glsl_get_bare_type(type);
 
-   if (glsl_type_is_vector_or_scalar(type)) {
+   if (glsl_type_is_cooperative_matrix(type)) {
+      nir_variable *var = nir_local_variable_create(b->nb.impl, type, "cmat_undef");
+      val->def = &nir_build_deref_var(&b->nb, var)->def;
+   } else if (glsl_type_is_vector_or_scalar(type)) {
       unsigned num_components = glsl_get_vector_elements(val->type);
       unsigned bit_size = glsl_get_bit_size(val->type);
       val->def = nir_undef(&b->nb, num_components, bit_size);
@@ -303,9 +306,11 @@ vtn_const_ssa_value(struct vtn_builder *b, nir_constant *constant,
 
    if (glsl_type_is_cooperative_matrix(type)) {
       const struct glsl_type *element_type = glsl_get_cooperative_matrix_element(type);
-      const struct glsl_cooperative_matrix_description *desc = glsl_get_cooperative_matrix_description(type);
-      val->def = nir_coop_construct(&b->nb, nir_build_imm(&b->nb, 1, glsl_get_bit_size(element_type),
-                                                          constant->values), .matrix_desc = *desc);
+
+      nir_variable *var = nir_local_variable_create(b->nb.impl, type, "cmat_const");
+      val->def = &nir_build_deref_var(&b->nb, var)->def;
+      nir_cmat_construct(&b->nb, val->def, nir_build_imm(&b->nb, 1, glsl_get_bit_size(element_type),
+                                                          constant->values));
    } else if (glsl_type_is_vector_or_scalar(type)) {
       unsigned num_components = glsl_get_vector_elements(val->type);
       unsigned bit_size = glsl_get_bit_size(type);
@@ -386,6 +391,22 @@ vtn_push_ssa_value(struct vtn_builder *b, uint32_t value_id,
    }
 
    return val;
+}
+
+struct vtn_value *
+vtn_push_variable_value(struct vtn_builder *b, uint32_t value_id, nir_variable *var)
+{
+   struct vtn_type *type = vtn_get_value_type(b, value_id);
+
+   vtn_fail_if(type->base_type != vtn_base_type_cooperative_matrix, "Expected a cooperative matrix type when using a variable variables");
+
+   if (!var)
+      var = nir_local_variable_create(b->nb.impl, type->type, "abstract_var");
+   struct vtn_ssa_value *ssa = rzalloc(b, struct vtn_ssa_value);
+   ssa->def = &nir_build_deref_var(&b->nb, var)->def;
+   ssa->type = type->type;
+
+   return vtn_push_ssa_value(b, value_id, ssa);
 }
 
 nir_def *
@@ -4312,8 +4333,9 @@ vtn_handle_composite(struct vtn_builder *b, SpvOp opcode,
       assume(elems >= 1);
       if (type->base_type == vtn_base_type_cooperative_matrix) {
          vtn_assert(elems == 1);
-         const struct glsl_cooperative_matrix_description *desc = glsl_get_cooperative_matrix_description(type->type);
-         ssa->def = nir_coop_construct(&b->nb, vtn_get_nir_ssa(b, w[3]), .matrix_desc = *desc);
+         nir_variable *var = nir_local_variable_create(b->nb.impl, type->type, "cmat_construct");
+         ssa->def = &nir_build_deref_var(&b->nb, var)->def;
+         nir_cmat_construct(&b->nb, ssa->def, vtn_get_nir_ssa(b, w[3]));
       } else if (glsl_type_is_vector_or_scalar(type->type)) {
          nir_def *srcs[NIR_MAX_VEC_COMPONENTS];
          for (unsigned i = 0; i < elems; i++) {

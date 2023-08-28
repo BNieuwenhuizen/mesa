@@ -504,7 +504,16 @@ _vtn_local_load_store(struct vtn_builder *b, bool load, nir_deref_instr *deref,
                       struct vtn_ssa_value *inout,
                       enum gl_access_qualifier access)
 {
-   if (glsl_type_is_vector_or_scalar(deref->type)) {
+   if (glsl_type_is_cooperative_matrix(deref->type)) {
+      if (load) {
+         nir_variable *var = nir_local_variable_create(b->nb.impl,
+                                                       deref->type, "cmat_load");
+         inout->def = &nir_build_deref_var(&b->nb, var)->def;
+         nir_build_copy_deref(&b->nb, inout->def, &deref->def, 0, access);
+      } else {
+         nir_build_copy_deref(&b->nb, &deref->def, inout->def, access, 0);
+      }
+   } else if (glsl_type_is_vector_or_scalar(deref->type)) {
       if (load) {
          inout->def = nir_load_deref_with_access(&b->nb, deref, access);
       } else {
@@ -577,13 +586,9 @@ vtn_local_load(struct vtn_builder *b, nir_deref_instr *src,
       val->type = src->type;
 
       if (glsl_type_is_cooperative_matrix(src_tail->type)) {
-         const struct glsl_cooperative_matrix_description desc =
-            *glsl_get_cooperative_matrix_description(src_tail->type);
-
-         val->def = nir_coop_extract(&b->nb,
+         val->def = nir_cmat_extract(&b->nb,
                                      glsl_get_bit_size(src->type),
-                                     val->def, src->arr.index.ssa,
-                                     .matrix_desc = desc);
+                                     val->def, src->arr.index.ssa);
       } else {
          val->def = nir_vector_extract(&b->nb, val->def, src->arr.index.ssa);
       }
@@ -603,12 +608,12 @@ vtn_local_store(struct vtn_builder *b, struct vtn_ssa_value *src,
       _vtn_local_load_store(b, true, dest_tail, val, access);
 
       if (glsl_type_is_cooperative_matrix(dest_tail->type)) {
-         const struct glsl_cooperative_matrix_description desc =
-            *glsl_get_cooperative_matrix_description(dest_tail->type);
-
-         val->def = nir_coop_insert(&b->nb, src->def,
-                                    val->def, dest->arr.index.ssa,
-                                    .matrix_desc = desc);
+         nir_variable *var = nir_local_variable_create(b->nb.impl,
+                                                       dest_tail->type, "cmat_local_store");
+         nir_def *deref = &nir_build_deref_var(&b->nb, var)->def;
+         nir_cmat_insert(&b->nb, deref, val->def,
+                                    dest->arr.index.ssa, src->def);
+         val->def = deref;
       } else {
          val->def = nir_vector_insert(&b->nb, val->def, src->def,
                                       dest->arr.index.ssa);

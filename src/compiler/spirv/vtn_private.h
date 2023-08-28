@@ -866,6 +866,7 @@ vtn_block(struct vtn_builder *b, uint32_t value_id)
 struct vtn_ssa_value *vtn_ssa_value(struct vtn_builder *b, uint32_t value_id);
 struct vtn_value *vtn_push_ssa_value(struct vtn_builder *b, uint32_t value_id,
                                      struct vtn_ssa_value *ssa);
+struct vtn_value *vtn_push_variable_value(struct vtn_builder *b, uint32_t value_id, nir_variable *var);
 
 nir_def *vtn_get_nir_ssa(struct vtn_builder *b, uint32_t value_id);
 struct vtn_value *vtn_push_nir_ssa(struct vtn_builder *b, uint32_t value_id,

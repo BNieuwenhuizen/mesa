@@ -44,131 +44,13 @@ static unsigned radv_nir_coop_matrix_bits(struct glsl_cooperative_matrix_descrip
    return glsl_base_type_bit_size(desc.element_type);
 }
 
-static bool
-radv_nir_fix_coop_matrix_insn_type(nir_instr *instr, nir_function_impl *impl, unsigned wave_size, bool changed_src)
+static nir_def *
+radv_nir_load_coop_matrix(nir_builder *b, unsigned wave_size, nir_def *src)
 {
-   nir_def *def = nir_instr_ssa_def(instr);
-   int old_comp = 0, old_bits = 0;
-   if (def) {
-      old_comp = def->num_components;
-      old_bits = def->bit_size;
-   }
-
-   switch (instr->type) {
-   case nir_instr_type_intrinsic: {
-      nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
-      switch(intr->intrinsic) {
-      case nir_intrinsic_coop_construct:
-      case nir_intrinsic_coop_load: {
-         struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
-         def->num_components = radv_nir_coop_matrix_length(desc, wave_size);
-         def->bit_size = radv_nir_coop_matrix_bits(desc);
-         break;
-      }
-      case nir_intrinsic_coop_unary_op:
-      case nir_intrinsic_coop_binary_op:
-      case nir_intrinsic_coop_scalar_op:
-      case nir_intrinsic_coop_bitcast:
-         def->num_components = intr->src[0].ssa->num_components;
-         def->bit_size = intr->src[0].ssa->bit_size;
-         break;
-      case nir_intrinsic_coop_insert:
-         def->num_components = intr->src[1].ssa->num_components;
-         def->bit_size = intr->src[1].ssa->bit_size;
-         break;
-      case nir_intrinsic_coop_muladd:
-         def->num_components = intr->src[2].ssa->num_components;
-         def->bit_size = intr->src[2].ssa->bit_size;
-         break;
-      case nir_intrinsic_load_deref: {
-         nir_deref_instr *deref = nir_src_as_deref(intr->src[0]);
-         if (!glsl_type_is_cooperative_matrix(deref->type))
-            return false;
-
-         struct glsl_cooperative_matrix_description desc = *glsl_get_cooperative_matrix_description(deref->type);
-         intr->num_components = def->num_components = radv_nir_coop_matrix_length(desc, wave_size);
-         def->bit_size = radv_nir_coop_matrix_bits(desc);
-
-         break;
-      }
-      case nir_intrinsic_store_deref: {
-         nir_deref_instr *deref = nir_src_as_deref(intr->src[0]);
-         if (!glsl_type_is_cooperative_matrix(deref->type))
-            return false;
-
-         struct glsl_cooperative_matrix_description desc = *glsl_get_cooperative_matrix_description(deref->type);
-         nir_intrinsic_set_write_mask(intr, (1u << radv_nir_coop_matrix_length(desc, wave_size)) - 1);
-         intr->num_components = radv_nir_coop_matrix_length(desc, wave_size);
-         return true;
-      }
-      default:
-         return false;
-      }
-      break;
-   }
-   case nir_instr_type_alu: {
-      if (!changed_src)
-         return false;
-
-      nir_alu_instr *alu = nir_instr_as_alu(instr);
-      assert(alu->op == nir_op_mov);
-      def->num_components = alu->src[0].src.ssa->num_components;
-      def->bit_size = alu->src[0].src.ssa->bit_size;
-      break;
-   }
-   case nir_instr_type_phi: {
-      if (!changed_src)
-         return false;
-
-      nir_phi_instr *phi = nir_instr_as_phi(instr);
-      nir_foreach_phi_src(src, phi) {
-          if (src->src.ssa->num_components > def->num_components) {
-             def->num_components = src->src.ssa->num_components;
-             def->bit_size = src->src.ssa->bit_size;
-          }
-      }
-      nir_foreach_phi_src (src, phi) {
-          if (src->src.ssa->num_components < def->num_components && src->src.ssa->parent_instr &&
-              src->src.ssa->parent_instr->type == nir_instr_type_ssa_undef) {
-             /* Undef is never going to get changed otherwise so we need to change it here. Create a new one as undefs
-              * may be shared. */
-             nir_builder b = nir_builder_create(impl);
-             b.cursor = nir_before_instr(src->src.ssa->parent_instr);
-
-             nir_def *undef = nir_undef(&b, def->num_components, def->bit_size);
-             nir_src_rewrite(&src->src, undef);
-          }
-      }
-    break;
-   }
-   default:
-      return false;
-   }
-
-   if (def && (old_comp != def->num_components || old_bits != def->bit_size)) {
-      nir_foreach_use(src, def) {
-          radv_nir_fix_coop_matrix_insn_type(src->parent_instr, impl, wave_size, true);
-      }
-
-      return true;
-   }
-
-   return false;
-}
-
-static bool
-radv_nir_fix_coop_matrix_types(nir_shader *shader, unsigned wave_size)
-{
-   bool progress = false;
-
-   struct nir_function *func = (struct nir_function *)exec_list_get_head_const(&shader->functions);
-   nir_foreach_block (block, func->impl) {
-      nir_foreach_instr_safe (instr, block) {
-          if (radv_nir_fix_coop_matrix_insn_type(instr, func->impl, wave_size, false))
-             progress = true;
-      }
-   }
-   return progress;
+   nir_deref_instr *deref = nir_instr_as_deref(src->parent_instr);
+   struct glsl_cooperative_matrix_description desc = *glsl_get_cooperative_matrix_description(deref->type);
+   return nir_build_load_deref(b, radv_nir_coop_matrix_length(desc, wave_size),
+                               glsl_base_type_bit_size(desc.element_type), src, 0);
 }
 
 static const struct glsl_type *
@@ -222,7 +104,7 @@ radv_nir_translate_matrix_type(const struct glsl_type *orig_type, struct hash_ta
 bool
 radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
 {
-   bool progress = radv_nir_fix_coop_matrix_types(shader, wave_size);
+   bool progress = false;
 
    struct nir_function *func = (struct nir_function *)exec_list_get_head_const(&shader->functions);
 
@@ -243,15 +125,17 @@ radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
    }
 
    nir_builder b = nir_builder_create(func->impl);
-   nir_foreach_block (block, func->impl) {
-      nir_foreach_instr_safe (instr, block) {
+
+   /* Iterate in reverse order so that lowering can still use the matrix types from the derefs before we change it. */
+   nir_foreach_block_reverse (block, func->impl) {
+      nir_foreach_instr_reverse_safe (instr, block) {
          b.cursor = nir_before_instr(instr);
 
          switch(instr->type) {
          case nir_instr_type_intrinsic: {
             nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
             switch (intr->intrinsic) {
-            case nir_intrinsic_coop_length: {
+            case nir_intrinsic_cmat_length: {
                struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
                unsigned len = radv_nir_coop_matrix_length(desc, wave_size) / radv_nir_coop_matrix_length_mul(desc);
                nir_def_rewrite_uses(&intr->def, nir_imm_int(&b, len));
@@ -259,53 +143,58 @@ radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_bitcast: {
-               nir_def *src = intr->src[0].ssa;
-               nir_def_rewrite_uses(&intr->def, src);
-               nir_instr_remove(instr);
-               progress = true;
-               break;
-            }
-            case nir_intrinsic_coop_extract: {
-               struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
+            case nir_intrinsic_cmat_extract: {
+               nir_deref_instr *src_deref = nir_instr_as_deref(intr->src[0].ssa->parent_instr);
+               struct glsl_cooperative_matrix_description desc =
+                  *glsl_get_cooperative_matrix_description(src_deref->type);
+               nir_def *src0 = radv_nir_load_coop_matrix(&b, wave_size, intr->src[0].ssa);
+
                nir_def *index = intr->src[1].ssa;
                index = nir_imul_imm(&b, index, radv_nir_coop_matrix_length_mul(desc));
 
-               nir_def *elem = nir_vector_extract(&b, intr->src[0].ssa, index);
-               
+               nir_def *elem = nir_vector_extract(&b, src0, index);
+
                nir_def_rewrite_uses(&intr->def, elem);
                nir_instr_remove(instr);
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_insert: {
-               struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
+            case nir_intrinsic_cmat_insert: {
+               nir_def *src1 = radv_nir_load_coop_matrix(&b, wave_size, intr->src[1].ssa);
+               nir_deref_instr *dst_deref = nir_instr_as_deref(intr->src[0].ssa->parent_instr);
+               struct glsl_cooperative_matrix_description desc =
+                  *glsl_get_cooperative_matrix_description(dst_deref->type);
                nir_def *index = intr->src[2].ssa;
                index = nir_imul_imm(&b, index, radv_nir_coop_matrix_length_mul(desc));
-            
-               nir_def *elem = intr->src[0].ssa;
-               nir_def *r = nir_vector_insert(&b, intr->src[1].ssa, elem, index);
-               nir_def_rewrite_uses(&intr->def, r);
+
+               nir_def *elem = intr->src[3].ssa;
+               nir_def *r = nir_vector_insert(&b, src1, elem, index);
+               nir_store_deref(&b, dst_deref, r, 0xffff);
                nir_instr_remove(instr);
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_construct: {
-               struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
-               nir_def *elem = intr->src[0].ssa;
+            case nir_intrinsic_cmat_construct: {
+               nir_deref_instr *dst_deref = nir_instr_as_deref(intr->src[0].ssa->parent_instr);
+               struct glsl_cooperative_matrix_description desc =
+                  *glsl_get_cooperative_matrix_description(dst_deref->type);
+               nir_def *elem = intr->src[1].ssa;
 
                nir_def *r = nir_replicate(&b, elem, radv_nir_coop_matrix_length(desc, wave_size));
-               nir_def_rewrite_uses(&intr->def, r);
+
+               nir_store_deref(&b, dst_deref, r, 0xffff);
                nir_instr_remove(instr);
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_load: {
-               struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
+            case nir_intrinsic_cmat_load: {
+               nir_deref_instr *dst_deref = nir_instr_as_deref(intr->src[0].ssa->parent_instr);
+               struct glsl_cooperative_matrix_description desc =
+                  *glsl_get_cooperative_matrix_description(dst_deref->type);
                enum glsl_matrix_layout layout = nir_intrinsic_matrix_layout(intr);
 
-               nir_deref_instr *deref = nir_instr_as_deref(intr->src[0].ssa->parent_instr);
-               nir_def *stride = intr->src[1].ssa;
+               nir_deref_instr *deref = nir_instr_as_deref(intr->src[1].ssa->parent_instr);
+               nir_def *stride = intr->src[2].ssa;
 
                nir_def *local_idx = nir_load_subgroup_invocation(&b);
                nir_def *inner_idx = nir_iand_imm(&b, local_idx, 15);
@@ -321,7 +210,7 @@ radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
                if (mul > 1) {
                   for (unsigned i = 0; i < length; ++i)
                      if (i % mul != 0)
-                        vars[i] = nir_undef(&b, 1, intr->def.bit_size);
+                        vars[i] = nir_undef(&b, 1, glsl_base_type_bit_size(desc.element_type));
                }
 
                unsigned idx_bits = deref->def.bit_size;
@@ -354,18 +243,22 @@ radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
                }
 
                nir_def *mat = nir_vec(&b, vars, length);
-               nir_def_rewrite_uses(&intr->def, mat);
+               nir_store_deref(&b, dst_deref, mat, 0xffff);
                nir_instr_remove(instr);
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_store: {
-               struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
+            case nir_intrinsic_cmat_store: {
                enum glsl_matrix_layout layout = nir_intrinsic_matrix_layout(intr);
 
                nir_deref_instr *deref = nir_instr_as_deref(intr->src[0].ssa->parent_instr);
                nir_def *src = intr->src[1].ssa;
                nir_def *stride = intr->src[2].ssa;
+
+               nir_deref_instr *src_deref = nir_instr_as_deref(src->parent_instr);
+               struct glsl_cooperative_matrix_description desc =
+                  *glsl_get_cooperative_matrix_description(src_deref->type);
+               src = radv_nir_load_coop_matrix(&b, wave_size, src);
 
                nir_def *local_idx = nir_load_subgroup_invocation(&b);
 
@@ -421,27 +314,33 @@ radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_muladd: {
-               nir_def *A = intr->src[0].ssa;
-               nir_def *B = intr->src[1].ssa;
-               nir_def *C = intr->src[2].ssa;
+            case nir_intrinsic_cmat_muladd: {
+               nir_def *A = radv_nir_load_coop_matrix(&b, wave_size, intr->src[1].ssa);
+               nir_def *B = radv_nir_load_coop_matrix(&b, wave_size, intr->src[2].ssa);
+               nir_def *C = radv_nir_load_coop_matrix(&b, wave_size, intr->src[3].ssa);
                nir_def *ret;
 
                ret = nir_coop_muladd_amd(&b, A, B, C, .saturate = nir_intrinsic_saturate(intr),
                                          .matrix_signed_mask = nir_intrinsic_matrix_signed_mask(intr));
-               nir_def_rewrite_uses(&intr->def, ret);
+
+               nir_store_deref(&b, nir_instr_as_deref(intr->src[0].ssa->parent_instr), ret, 0xffff);
                nir_instr_remove(instr);
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_unary_op: {
-               struct glsl_cooperative_matrix_description desc = nir_intrinsic_matrix_desc(intr);
-               nir_def *src = intr->src[0].ssa;
+            case nir_intrinsic_cmat_unary_op: {
+               nir_deref_instr *dst_deref = nir_instr_as_deref(intr->src[0].ssa->parent_instr);
+               nir_deref_instr *src_deref = nir_instr_as_deref(intr->src[1].ssa->parent_instr);
+               struct glsl_cooperative_matrix_description desc =
+                  *glsl_get_cooperative_matrix_description(dst_deref->type);
+               struct glsl_cooperative_matrix_description src_desc =
+                  *glsl_get_cooperative_matrix_description(src_deref->type);
+               nir_def *src = radv_nir_load_coop_matrix(&b, wave_size, intr->src[1].ssa);
                nir_op op = nir_intrinsic_alu_op(intr);
 
-               if ((op == nir_op_f2f32 || op == nir_op_i2i32 || op == nir_op_u2u32 || op == nir_op_f2i32 ||
-                    op == nir_op_f2u32 || op == nir_op_i2f32 || op == nir_op_u2f32) &&
-                   intr->src[0].ssa->bit_size == 16 && desc.use == GLSL_COOPERATIVE_MATRIX_USE_ACCUMULATOR) {
+               if (glsl_base_type_bit_size(src_desc.element_type) == 16 &&
+                   glsl_base_type_bit_size(desc.element_type) == 32 &&
+                   desc.use == GLSL_COOPERATIVE_MATRIX_USE_ACCUMULATOR) {
                   nir_def *components[NIR_MAX_VEC_COMPONENTS];
                   for (unsigned i = 0; i * 2 < src->num_components; ++i) {
                      components[i] = nir_channel(&b, src, i * 2);
@@ -451,9 +350,9 @@ radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
 
                nir_def *ret = nir_build_alu1(&b, op, src);
 
-               if ((op == nir_op_f2f16 || op == nir_op_i2i16 || op == nir_op_u2u16 || op == nir_op_f2u16 ||
-                    op == nir_op_f2i16 || op == nir_op_i2f16 || op == nir_op_u2f16) &&
-                   intr->src[0].ssa->bit_size == 32 && desc.use == GLSL_COOPERATIVE_MATRIX_USE_ACCUMULATOR) {
+               if (glsl_base_type_bit_size(src_desc.element_type) == 32 &&
+                   glsl_base_type_bit_size(desc.element_type) == 16 &&
+                   desc.use == GLSL_COOPERATIVE_MATRIX_USE_ACCUMULATOR) {
                   nir_def *components[NIR_MAX_VEC_COMPONENTS];
                   for (unsigned i = 0; i < ret->num_components; ++i) {
                      components[i * 2] = nir_channel(&b, ret, i);
@@ -462,16 +361,33 @@ radv_nir_lower_cooperative_matrix(nir_shader *shader, unsigned wave_size)
                   ret = nir_vec(&b, components, ret->num_components * 2);
                }
 
-               nir_def_rewrite_uses(&intr->def, ret);
+               nir_store_deref(&b, dst_deref, ret, 0xffff);
                nir_instr_remove(instr);
                progress = true;
                break;
             }
-            case nir_intrinsic_coop_scalar_op:
-            case nir_intrinsic_coop_binary_op: {
+            case nir_intrinsic_cmat_scalar_op: {
+               nir_def *src1 = radv_nir_load_coop_matrix(&b, wave_size, intr->src[1].ssa);
                nir_op op = nir_intrinsic_alu_op(intr);
-               nir_def *ret = nir_build_alu2(&b, op, intr->src[0].ssa, intr->src[1].ssa);
-               nir_def_rewrite_uses(&intr->def, ret);
+               nir_def *ret = nir_build_alu2(&b, op, src1, intr->src[2].ssa);
+               nir_store_deref(&b, nir_instr_as_deref(intr->src[0].ssa->parent_instr), ret, 0xffff);
+               nir_instr_remove(instr);
+               progress = true;
+               break;
+            }
+            case nir_intrinsic_cmat_binary_op: {
+               nir_def *src1 = radv_nir_load_coop_matrix(&b, wave_size, intr->src[1].ssa);
+               nir_def *src2 = radv_nir_load_coop_matrix(&b, wave_size, intr->src[2].ssa);
+               nir_op op = nir_intrinsic_alu_op(intr);
+               nir_def *ret = nir_build_alu2(&b, op, src1, src2);
+               nir_store_deref(&b, nir_instr_as_deref(intr->src[0].ssa->parent_instr), ret, 0xffff);
+               nir_instr_remove(instr);
+               progress = true;
+               break;
+            }
+            case nir_intrinsic_cmat_bitcast: {
+               nir_def *src1 = radv_nir_load_coop_matrix(&b, wave_size, intr->src[1].ssa);
+               nir_store_deref(&b, nir_instr_as_deref(intr->src[0].ssa->parent_instr), src1, 0xffff);
                nir_instr_remove(instr);
                progress = true;
                break;
